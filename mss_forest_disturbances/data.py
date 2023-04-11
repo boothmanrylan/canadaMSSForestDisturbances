@@ -61,6 +61,12 @@ CLASS_PALETTE = [
     'black', 'gold', 'forestGreen', 'blue', 'red', 'saddleBrown', 'white', 'grey'
 ]
 
+JUL_1 = 172 # approximate day of year for July 1st
+SEP_30 = 282 # approximate day of year for Sep. 30th
+
+_QUALITY_BAND = 'tca'
+_QUALITY_KEY = 'quality'
+
 
 def get_landcover(year=None, aoi=None):
     """Gets a landcover map for the given year and aoi.
@@ -230,7 +236,7 @@ def get_disturbance_map(year=None, aoi=None):
             given the entire map is returned.
 
     Returns:
-        ee.Image that is 1 where there was fire, 2 where there was harves and
+        ee.Image that is 1 where there was fire, 2 where there was harvest and
         0 otherwise.
     """
     fire = get_fire_map(year, aoi)
