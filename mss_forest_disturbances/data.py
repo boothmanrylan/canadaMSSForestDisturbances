@@ -130,6 +130,12 @@ def get_treed_mask(year=None, aoi=None):
 def get_water_mask(year=None, aoi=None):
     """Gets a water mask for the given year and aoi.
 
+    The returned mask can be used like this:
+    ```
+    im = im.update_mask(get_water_mask(year))
+    ```
+    So that all regions covered by water in `year` are masked out in `im`.
+
     The mask is based on the Canada Forested Landcover VLCE2 map.
 
     Args:
@@ -139,7 +145,7 @@ def get_water_mask(year=None, aoi=None):
             given the entire landcover map is returned.
 
     Returns:
-        ee.Image that is 1 where there is water and 0 otherwise
+        ee.Image that is 0 where there is water and 1 otherwise
     """
     if year is None:
         landcover = LANDCOVER.sort('system:time_start', False).first()
@@ -151,7 +157,7 @@ def get_water_mask(year=None, aoi=None):
     if aoi is not None:
         landcover = landcover.clip(aoi)
 
-    return landcover.eq(20)
+    return landcover.neq(20)
 
 
 def get_basemap(year=None, aoi=None):
@@ -170,7 +176,7 @@ def get_basemap(year=None, aoi=None):
         and 0 otherwise.
     """
     trees = get_treed_mask(year, aoi)
-    water = get_water_mask(year, aoi).selfMask().add(1)
+    water = get_water_mask(year, aoi).Not().selfMask().add(1)
     return trees.blend(water)
 
 
