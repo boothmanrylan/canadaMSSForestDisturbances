@@ -230,9 +230,10 @@ def get_harvest_map(year=None, aoi=None):
 
 
 def get_disturbance_map(year=None, aoi=None):
-    """Gets a map of forest disturbances for the given year and aoi.
+    """Gets a map of typed forest disturbances for the given year and aoi.
 
-    The map is based on the Canadian Forest Service's annual harvest maps.
+    The map is based on the Canadian Forest Service's annual harvest and fire
+    maps.
 
     Args:
         year: integer, if given the year to get the map for, if not given
@@ -251,6 +252,35 @@ def get_disturbance_map(year=None, aoi=None):
     return disturbances
 
 
+def get_disturbed_regions(year=None, aoi=None):
+    """ Returns a map of all disturbances for a given year and aoi.
+
+    The result will be 1 wherever there was a disturbance and 0 otherwise.
+    Disturbance type gets stripped. If you need disturbance type, use
+    get_disturbance_map()
+
+    Args:
+        year: int, if given only disturbances that occurred during this year
+            are returned, if not disturbances from all years are returned.
+        aoi: ee.Geometry, if given the map will be clipped to the aoi, if not
+            given the entire map is returned.
+
+    Returns:
+        ee.Image, map of disturbances.
+    """
+    if year is not None:
+        fire = FIRE.eq(year).selfMask().unmask(0)
+        harvest = HARVEST.eq(year).selfMask().unmask(0)
+    else:
+        fire = FIRE.gt(0).selfMask().unmask(0)
+        harvest = HARVEST.gt(0).selfMask().unmask(0)
+
+    disturbances = harvest.Or(fire)
+
+    if aoi is not None:
+        disturbances = disturbances.clip(aoi)
+
+    return disturbances
 def label_image(image):
     """Creates the target labels for a given MSS image.
 
