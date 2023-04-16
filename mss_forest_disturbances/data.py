@@ -66,9 +66,6 @@ CLASS_VIS = {'min': 1, 'max': 7, 'palette': CLASS_PALETTE}
 JUL_1 = 172 # approximate day of year for July 1st
 SEP_30 = 282 # approximate day of year for Sep. 30th
 
-_QUALITY_BAND = 'tca'
-_QUALITY_KEY = 'quality'
-
 
 def get_landcover(year=None, aoi=None):
     """Gets a landcover map for the given year and aoi.
