@@ -281,6 +281,146 @@ def get_disturbed_regions(year=None, aoi=None):
         disturbances = disturbances.clip(aoi)
 
     return disturbances
+
+
+def build_grid(aoi, proj, scale, chip_size, overlap_size=0):
+    """ Creates a tiled grid that covers aoi.
+
+    Each grid cell will be a square that ischip_size pixels wide in the given
+    projection at the given scale and overlap with its neighbours by
+    overlap_size pixels.
+
+    Args:
+        aoi: ee.Geometry to create a grid for
+        proj: ee.Projection to perform the tiling in, must cover all of aoi
+        scale: int, the nominalScale in meters of one pixel
+        chip_size: int, the grid cell size in pixels
+        overlap_size: int, optional, the amount of overlap in pixels between
+            adjacent grid cells
+
+    Returns:
+        ee.FeatureCollection
+    """
+    def buffer_and_bound(feat):
+        return ee.Feature(feat.geometry().buffer(overlap, 1).bounds(1, proj))
+
+    patch = (chip_size - overlap_size) * scale
+    overlap = overlap_size * scale
+
+    grid = aoi.coveringGrid(proj.atScale(scale), patch)
+    return grid.map(buffer_and_bound)
+
+
+def get_disturbed_grid_cells(grid, year):
+    """ Returns the subset of cells in grid that overlap a disturbance in year
+
+    Args:
+        grid: FeatureCollection e.g. originating from build_grid()
+        year: int the year to get disturbed regions for
+
+    Returns:
+        2-tuple of ee.FeatureCollections (disturbed cells, undisturbed cells)
+    """
+    disturbed_regions = get_disturbed_regions(year).selfMask()
+    disturbed_vectors = disturbed_regions.reduceToVectors(
+        geometry=grid.geometry(),
+        scale=1000
+    )
+    large_disturbances = disturbed_vectors.filter(ee.Filter.gte('count', 10))
+
+    intersect_filter = ee.Filter.intersects(
+        leftField='.geo',
+        rightField='.geo',
+        maxError=100
+    )
+
+    join = ee.Join.simple()
+    invert_join = ee.Join.inverted()
+
+    disturbed = join.apply(grid, large_disturbances, intersect_filter)
+    undisturbed = invert_join.apply(grid, large_disturbances, intersect_filter)
+    
+    return disturbed, undisturbed
+
+
+def sample_grid_cells(grid, n, percent_disturbed, year):
+    """ Samples n cells from grid.
+
+    Attempts to have as close as possible to percent_disturbed of the sample to
+    overlap with disturbances from year.
+
+    Args:
+        grid: ee.FeatureCollection e.g. originating form build_grid()
+        n: int, the number of cells to sample
+        percent_disturbed: float, the percentage of cells sampled that should
+            overlap with a disturbance
+        year: int, the year to base overlap with disturbances on
+
+    Returns:
+        2-tuple of ee.FeatureCollection, (disturbed sample, undisturbed sample)
+    """
+    disturbed_cells, undisturbed_cells = get_disturbed_grid_cells(grid, year)
+
+    # track property names so that we can strip the random column 
+    props = disturbed_cells.propertyNames()
+    
+    n_disturbed = disturbed_cells.size().min(n * percent_disturbed)
+    n_undisturbed = ee.Number(n).subtract(n_disturbed)
+
+    disturbed_cells = disturbed_cells.randomColumn('rand', year)
+    disturbed_cells = disturbed_cells.limit(n_disturbed, 'rand')
+
+    undisturbed_cells = undisturbed_cells.randomColumn('rand', year)
+    undisturbed_cells = undisturbed_cells.limit(n_undisturbed, 'rand')
+
+    return disturbed_cells.select(props), undisturbed_cells.select(props)
+
+
+def train_test_val_split(grid, year, n, ptrain, ptest, pval, pdisturbed):
+    """ Samples cells from grid to make train/test/validation splits.
+
+    Args:
+        grid: ee.FeatureCollection, e.g. originating from build_grid()
+        year: int, the year to base disturbances off of
+        n: int, the total number of cells to sample
+        ptrain: float, percentage of samples to allocate to the train split
+        ptest: float, percentage of samples to allocate to the test split
+        pval: float, percentage of samples to allocate to the val split
+        pdisturbed: float, percentage of cells to enforce overlapping with a
+            disturbance
+
+    Returns:
+        3-tuple of ee.FeatureCollections (train, test, validation)
+    """
+    disturbed, undisturbed = sample_grid_cells(grid, n, pdisturbed, year)
+
+    # track property names so that we can strip the random column 
+    props = disturbed.propertyNames()
+
+    def sample_and_merge(count1, count2, offset1, offset2):
+        # grab count1 samples starting at offset1 from disturbed
+        # grab count2 samples starting at offset2 from undisurbed
+        # merge and shuffle
+        d = ee.FeatureCollection(disturbed.toList(count1, offset1))
+        u = ee.FeatureCollection(undisturbed.toList(count2, offset2))
+        return d.merge(u).randomColumn('rand', 42).sort('rand').select(props)
+
+    trnc1 = disturbed.size().multiply(ptrain).ceil()
+    trnc2 = undisturbed.size().multiply(ptrain).ceil()
+    tstc1 = disturbed.size().multiply(ptest).ceil()
+    tstc2 = undisturbed.size().multiply(ptest).ceil()
+    valc1 = disturbed.size().multiply(pval).ceil()
+    valc2 = undisturbed.size().multiply(pval).ceil()
+
+    # we don't need to shuffle before selecting b/c that is already done in
+    # sample_grid_cells
+    train = sample_and_merge(trnc1, trnc2, 0, 0)
+    test = sample_and_merge(tstc1, tstc2, trnc1, trnc2)
+    val = sample_and_merge(valc1, valc2, trnc1.add(tstc1), trnc2.add(tstc2))
+
+    return train, test, val
+
+
 def label_image(image):
     """Creates the target labels for a given MSS image.
 
