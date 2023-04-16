@@ -58,8 +58,10 @@ CLASSES = {
 }
 
 CLASS_PALETTE = [
-    'black', 'gold', 'forestGreen', 'blue', 'red', 'saddleBrown', 'white', 'grey'
+    'black', 'gold', 'darkCyan', 'red', 'purple', 'cornsilk', 'dimGrey'
 ]
+
+CLASS_VIS = {'min': 1, 'max': 7, 'palette': CLASS_PALETTE}
 
 JUL_1 = 172 # approximate day of year for July 1st
 SEP_30 = 282 # approximate day of year for Sep. 30th
