@@ -471,3 +471,61 @@ def get_label(aoi, year):
     base = get_basemap(year, aoi).add(1)
     disturbances = get_disturbance_map(year, aoi).selfMask().add(3)
     return base.blend(disturbances)
+
+
+def get_data_for_cell(cell, lookback=3, lookahead=3):
+    """ Return the inputs and target labels for the given cell.
+
+    Returns an image collection containing all the MSS images from lookback
+    years prior to the year of cell, an image collection containing all the MSS
+    images from the year of cell, an image collection containing the labels for
+    each MSS image acquired within the year of the cell, an image collection
+    containing all the MSS images from lookahead years after the year of the
+    cell, and an image containing the true label of cell during the year of the
+    cell.
+
+    Args:
+        cell: ee.Geometry, the aoi to get the inputs and target labels for
+            (e.g. this function can be mapped across on of the outputs of
+            train_test_val_split)
+        lookback: int, the number of years of data to include in the lookback
+            collection
+        lookahead: int, the number of years of data to include in the lookahead
+            collection
+
+    Returns:
+        dictionary: keys are current_col, lookback_col, lookahead_col,
+        label_col, and true_label
+    """
+    year = cell.getNumber('year')
+    cell = cell.geometry()
+
+    def clip(im):
+        return im.clip(cell)
+
+    output = {}
+    output['current_col'] = msslib.getCol(
+        aoi=cell,
+        yearRange=[year, year],
+        doyRange=DOY_RANGE,
+        maxCloudCover=100
+    ).map(msslib.calcToa).map(clip)
+
+    output['lookback_col'] = msslib.getCol(
+        aoi=cell,
+        yearRange=[year.subtract(lookback - 1), year.subtract(1)],
+        doyRange=DOY_RANGE,
+        maxCloudCover=100
+    ).map(msslib.calcToa).map(clip)
+
+    output['lookahead_col'] = msslib.getCol(
+        aoi=cell,
+        yearRange=[year.add(1), year.add(lookahead + 1)],
+        doyRange=DOY_RANGE,
+        maxCloudCover=100,
+    ).map(msslib.calcToa).map(clip)
+
+    output['label_col'] = output['current_col'].map(label_image).map(clip)
+    output['true_label'] = get_label(cell, year)
+
+    return output
