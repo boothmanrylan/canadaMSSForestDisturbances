@@ -441,13 +441,28 @@ def label_image(image):
     year = image.getNumber('year')
     aoi = image.geometry()
 
+    tca = msslib.addTc(image).select('tca')
+    undisturbed_tca = tca.updateMask(get_treed_mask(year))
+    mean_undisturbed_tca = undisturbed_tca.reduceRegion(
+        geometry=aoi,
+        scale=1000,
+        reducer=ee.Reducer.mean()
+    ).getNumber('tca')
+    std_undisturbed_tca = undisturbed_tca.reduceRegion(
+        geometry=aoi,
+        scale=1000,
+        reducer=ee.Reducer.stdDev()
+    ).getNumber('tca')
+    tca_threshold = mean_undisturbed_tca.subtract(std_undisturbed_tca)
+
     base = get_basemap(year, aoi).add(1)
+
     disturbances = get_disturbance_map(year, aoi).selfMask().add(3)
+    true_disturbances = disturbances.updateMask(tca.lte(tca_threshold))
+
     occlusion = msslib.addMsscvm(image).select('msscvm').selfMask().add(5)
 
-    # TODO: apply threshold to TCA within disturbed regions
-
-    return base.blend(disturbances).blend(occlusion)
+    return base.blend(true_disturbances).blend(occlusion)
 
 
 def get_label(aoi, year):
@@ -509,7 +524,10 @@ def get_data_for_cell(cell, lookback=3, lookahead=3):
         yearRange=[year, year],
         doyRange=DOY_RANGE,
         maxCloudCover=100
-    ).map(msslib.calcToa).map(clip)
+    ).map(msslib.calcToa)
+
+    output['label_col'] = output['current_col'].map(label_image).map(clip)
+    output['current_col'] = output['current_col'].map(clip)
 
     output['lookback_col'] = msslib.getCol(
         aoi=cell,
@@ -525,7 +543,6 @@ def get_data_for_cell(cell, lookback=3, lookahead=3):
         maxCloudCover=100,
     ).map(msslib.calcToa).map(clip)
 
-    output['label_col'] = output['current_col'].map(label_image).map(clip)
     output['true_label'] = get_label(cell, year)
 
     return output
