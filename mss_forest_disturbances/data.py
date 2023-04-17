@@ -449,3 +449,25 @@ def label_image(image):
 
     return base.blend(disturbances).blend(occlusion)
 
+
+def get_label(aoi, year):
+    """ Create target labelling for the given year and aoi.
+
+    Pixels are labelled as forest, non-forest, burn, harvest, or water. Forest,
+    non-forest, water is based on the Canada Forested Landcover VLCE2 dataset.
+    Fire and harvest comes from the Canadian Forest Service NTEMS annual forest
+    fire and harvest maps.
+
+    If a pixel would be labelled as more than one class the following precedence
+    rule is used: (water/forest/non-forest) < (burn/harvest)
+
+    Args:
+        aoi: ee.Geomatry, the region to get the label for
+        year: int, the year to base the disturbances off of
+
+    Returns:
+        ee.Image with one integer band contianing the class of each pixel.
+    """
+    base = get_basemap(year, aoi).add(1)
+    disturbances = get_disturbance_map(year, aoi).selfMask().add(3)
+    return base.blend(disturbances)
