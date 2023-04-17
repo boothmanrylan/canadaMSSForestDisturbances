@@ -322,6 +322,8 @@ def get_disturbed_grid_cells(grid, year):
     Returns:
         2-tuple of ee.FeatureCollections (disturbed cells, undisturbed cells)
     """
+    grid = grid.map(lambda x: x.set('year', year))
+
     disturbed_regions = get_disturbed_regions(year).selfMask()
     disturbed_vectors = disturbed_regions.reduceToVectors(
         geometry=grid.geometry(),
@@ -362,9 +364,6 @@ def sample_grid_cells(grid, n, percent_disturbed, year):
     """
     disturbed_cells, undisturbed_cells = get_disturbed_grid_cells(grid, year)
 
-    # track property names so that we can strip the random column 
-    props = disturbed_cells.propertyNames()
-    
     n_disturbed = disturbed_cells.size().min(n * percent_disturbed)
     n_undisturbed = ee.Number(n).subtract(n_disturbed)
 
@@ -374,7 +373,7 @@ def sample_grid_cells(grid, n, percent_disturbed, year):
     undisturbed_cells = undisturbed_cells.randomColumn('rand', year)
     undisturbed_cells = undisturbed_cells.limit(n_undisturbed, 'rand')
 
-    return disturbed_cells.select(props), undisturbed_cells.select(props)
+    return disturbed_cells, undisturbed_cells
 
 
 def train_test_val_split(grid, year, n, ptrain, ptest, pval, pdisturbed):
@@ -395,16 +394,13 @@ def train_test_val_split(grid, year, n, ptrain, ptest, pval, pdisturbed):
     """
     disturbed, undisturbed = sample_grid_cells(grid, n, pdisturbed, year)
 
-    # track property names so that we can strip the random column 
-    props = disturbed.propertyNames()
-
     def sample_and_merge(count1, count2, offset1, offset2):
         # grab count1 samples starting at offset1 from disturbed
         # grab count2 samples starting at offset2 from undisurbed
         # merge and shuffle
         d = ee.FeatureCollection(disturbed.toList(count1, offset1))
         u = ee.FeatureCollection(undisturbed.toList(count2, offset2))
-        return d.merge(u).randomColumn('rand', 42).sort('rand').select(props)
+        return d.merge(u).randomColumn('rand', 42).sort('rand')
 
     trnc1 = disturbed.size().multiply(ptrain).ceil()
     trnc2 = undisturbed.size().multiply(ptrain).ceil()
