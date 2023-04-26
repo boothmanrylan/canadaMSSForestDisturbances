@@ -95,7 +95,7 @@ def get_landcover(year=None, aoi=None):
     return landcover
 
 
-def get_treed_mask(year=None, aoi=None):
+def get_treed_mask(year=None, aoi=None, previous=False):
     """Gets a tree mask for the given year and aoi.
 
     The mask is based on the Canada Forested Landcover VLCE2 map.
@@ -110,6 +110,10 @@ def get_treed_mask(year=None, aoi=None):
             the most recent landcover map will be used. Must be >= 1984
         aoi: ee.Geometry, if given the mask will be clipped to the aoi, if not
             given the entire landcover map is returned.
+        previous: bool, if True the treed mask from the year before is
+            returned, this is useful for making a map of disturbances for a
+            single image in the given year if that image was acquired before
+            the disturbance occured.
 
     Returns:
         ee.Image that is 1 where there are trees and 0 otherwise
@@ -117,6 +121,8 @@ def get_treed_mask(year=None, aoi=None):
     if year is None:
         landcover = LANDCOVER.sort('system:time_start', False).first()
     else:
+        if previous:
+            year = ee.Number(year).subtract(1)
         start = ee.Date.fromYMD(year, 1, 1)
         end = ee.Date.fromYMD(year, 12, 31)
         landcover = LANDCOVER.filterDate(start, end).first()
@@ -160,7 +166,7 @@ def get_water_mask(year=None, aoi=None):
     return landcover.neq(20)
 
 
-def get_basemap(year=None, aoi=None):
+def get_basemap(year=None, aoi=None, previous=False):
     """Gets a tress/water/other map for the given year and aoi.
 
     The map is based on the Canada Forested Landcover VLCE2 map.
@@ -170,12 +176,15 @@ def get_basemap(year=None, aoi=None):
             the most recent landcover map will be used. Must be >= 1984
         aoi: ee.Geometry, if given the mask will be clipped to the aoi, if not
             given the entire landcover map is returned.
+        previous: bool, if true use the tree mask from the previous year, this
+            is useful if making the labels for a single image that may have
+            been acquired before a disturbance took place.
 
     Returns:
         ee.Image that is 1 where there are trees, 2 where there is water,
         and 0 otherwise.
     """
-    trees = get_treed_mask(year, aoi)
+    trees = get_treed_mask(year, aoi, previous=previous)
     water = get_water_mask(year, aoi).Not().selfMask().add(1)
     return trees.blend(water)
 
@@ -455,7 +464,7 @@ def label_image(image):
     ).getNumber('tca')
     tca_threshold = mean_undisturbed_tca.subtract(std_undisturbed_tca)
 
-    base = get_basemap(year, aoi).add(1)
+    base = get_basemap(year, aoi, previous=True).add(1)
 
     disturbances = get_disturbance_map(year, aoi).selfMask().add(3)
     true_disturbances = disturbances.updateMask(tca.lte(tca_threshold))
@@ -483,7 +492,7 @@ def get_label(aoi, year):
     Returns:
         ee.Image with one integer band contianing the class of each pixel.
     """
-    base = get_basemap(year, aoi).add(1)
+    base = get_basemap(year, aoi, previous=False).add(1)
     disturbances = get_disturbance_map(year, aoi).selfMask().add(3)
     return base.blend(disturbances)
 
