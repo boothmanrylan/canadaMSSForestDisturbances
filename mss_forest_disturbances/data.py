@@ -58,7 +58,7 @@ CLASSES = {
 }
 
 CLASS_PALETTE = [
-    'black', 'gold', 'darkCyan', 'red', 'purple', 'cornsilk', 'dimGrey'
+    'black', 'gold', 'darkCyan', 'fireBrick', 'purple', 'cornsilk', 'dimGrey'
 ]
 
 CLASS_VIS = {'min': 1, 'max': 7, 'palette': CLASS_PALETTE}
