@@ -67,6 +67,12 @@ JUL_1 = 172 # approximate day of year for July 1st
 SEP_30 = 282 # approximate day of year for Sep. 30th
 DOY_RANGE = [JUL_1, SEP_30]
 
+TM4_T1 = ee.ImageCollection('LANDSAT/LT04/C02/T1_L2')
+TM4_T2 = ee.ImageCollection('LANDSAT/LT04/C02/T2_L2')
+TM5_T1 = ee.ImageCollection('LANDSAT/LT05/C02/T1_L2')
+TM5_T2 = ee.ImageCollection('LANDSAT/LT05/C02/T2_L2')
+TM = TM4_T1.merge(TM4_T2).merge(TM5_T1).merge(TM5_T2)
+
 
 def get_landcover(year=None, aoi=None):
     """Gets a landcover map for the given year and aoi.
@@ -427,7 +433,79 @@ def train_test_val_split(grid, year, n, ptrain, ptest, pval, pdisturbed):
     return train, test, val
 
 
-def label_image(image):
+def bitwise_extract(image, from_bit, to_bit):
+    """ Helper method for extracting QA bit masks.
+
+    Code adapted from
+    https://spatialthoughts.com/2021/08/19/qa-bands-bitmask-gee/
+    which was in turn adapted from https://gis.stackexchange.com/a/349401/5160
+
+    Args:
+        image: ee.Image
+        from_bit: integer, the bit position to start extraction from
+        to_bit: integer, the bit position to end extraction at
+
+    Returns:
+        ee.Image
+    """
+    mask_size = ee.Number(1).add(to_bit).subtract(from_bit)
+    mask = ee.Number(1).leftShift(mask_size).subtract(1)
+    return image.rightShift(from_bit).bitwiseAnd(mask)
+
+
+def tm_clear_mask(image):
+    """ Mask cloud and cloud shadow pixels in Landsat TM images.
+
+    Cloud mask is based on the 6th bit of the QA_PIXEL band.
+    Shadow mask is based on the 4th bit of the QA_PIXEL band.
+
+    Args:
+        image: ee.Image must be from Landsat TM
+
+    Returns:
+        ee.Image, the input image after applying the mask.
+    """
+    qa = image.select('QA_PIXEL')
+    cloud_mask = bitwise_extract(qa, 6, 6).eq(1)
+    shadow_mask = bitwise_extract(qa, 4, 4).neq(1)
+    return image.updateMask(cloud_mask).updateMask(shadow_mask)
+
+
+def get_coincident_tm_image(mss_image):
+    """ Given an MSS image from Landsat 4/5 return the coincident TM image.
+
+    Applies scaling factors, calculates nbr, and masks cloud and cloud shadow
+    before returning the image.
+    
+    See here for explanation of sclaing factos
+    https://developers.google.com/earth-engine/datasets/catalog/LANDSAT_LT04_C02_T1_L2
+
+    Args:
+        mss_image: an ee.Image originating from msslib.getCol must be an MSS
+            image from Landsat 4 or Landset 4
+        mask_clouds: bool, if True cloud and cloud shadow are masked using the
+            QA_PIXEL.
+
+    Returns:
+        ee.Image, the coincident TM image to the input image, if one exists,
+        if no conincident image exists, return an empty image collection.
+    """
+    aoi = mss_image.geometry().centroid(10)
+    day_before = mss_image.date().advance(-1, "day")
+    day_after = mss_image.date().advance(1, "day")
+    im = TM.filterDate(day_before, day_after).filterBounds(aoi).first()
+
+    # apply scaling factors
+    optical = im.select('SR_B.').multiply(0.0000275).add(-0.2)
+    thermal = im.select('ST_B6').multiply(0.00341802).add(149.0)
+    im = im.addBands(optical, None, True).addBands(thermal, None, True)
+
+    nbr = im.normalizedDifference(['SR_B4', 'SR_B7']).rename('NBR')
+
+    return tm_clear_mask(im.addBands(nbr))
+
+
+def label_image(image, fire_threshold=2, harvest_threshold=1):
     """Creates the target labels for a given MSS image.
 
     Pixels are labelled as forest, non-forest, burn, harvest, water, cloud,
@@ -439,39 +517,62 @@ def label_image(image):
     If a pixel would be labelled as more than one class the following precedence
     rule is used: (water/forest/non-forest) < (burn/harvest) < (cloud/shadow).
 
+    To handle the image potentially being acquired before a disturbance
+    occurred harvest and fire regions are thresholded based on the NBR value of
+    the coincident Thematic Mapper image.
+
     Args:
         image: an ee.Image should originate from msslib.getCol() and
             msslib.calcToa().
+        fire_threshold: int, the number of standard deviations below the
+            mean NBR a pixel inside of regions labeled as fire by the
+            Canadian Forest Service needs to be to be labeled as fire.
+            Necessary to do this check because the image may have been
+            acquired before the disturbance occurred.
+        harvest_threshold: int, the number of standard deviations below the
+            mean NBR a pixel inside of regions labeled as harvest by the
+            Canadian Forest Service needs to be to be labeled as harvest.
+            Necessary to do this check because the image may have been
+            acquired before the disturbance occurred.
 
     Returns:
         an ee.Image with one integer band containing the class of each pixel.
     """
-
     year = image.getNumber('year')
     aoi = image.geometry()
 
-    tca = msslib.addTc(image).select('tca')
-    undisturbed_tca = tca.updateMask(get_treed_mask(year))
-    mean_undisturbed_tca = undisturbed_tca.reduceRegion(
+    nbr = get_coincident_tm_image(image).select('NBR')
+    undisturbed_nbr = nbr.updateMask(get_treed_mask(year, previous=True))
+
+    mean_undisturbed_nbr = undisturbed_nbr.reduceRegion(
         geometry=aoi,
-        scale=1000,
+        scale=600,
         reducer=ee.Reducer.mean()
-    ).getNumber('tca')
-    std_undisturbed_tca = undisturbed_tca.reduceRegion(
+    ).getNumber('NBR')
+    std_undisturbed_nbr = undisturbed_nbr.reduceRegion(
         geometry=aoi,
-        scale=1000,
+        scale=600,
         reducer=ee.Reducer.stdDev()
-    ).getNumber('tca')
-    tca_threshold = mean_undisturbed_tca.subtract(std_undisturbed_tca)
+    ).getNumber('NBR')
+
+    fire_mask = mean_undisturbed_nbr.subtract(
+        std_undisturbed_nbr.multiply(fire_threshold)
+    )
+    harvest_mask = mean_undisturbed_nbr.subtract(
+        std_undisturbed_nbr.multiply(harvest_threshold)
+    )
 
     base = get_basemap(year, aoi, previous=True).add(1)
 
-    disturbances = get_disturbance_map(year, aoi).selfMask().add(3)
-    true_disturbances = disturbances.updateMask(tca.lte(tca_threshold))
+    fire = get_fire_map(year, aoi).selfMask().add(3)
+    true_fire = fire.updateMask(nbr.lte(fire_mask))
 
-    occlusion = msslib.addMsscvm(image).select('msscvm').selfMask().add(5)
+    harvest = get_harvest_map(year, aoi).selfMask().add(4)
+    true_harvest = harvest.updateMask(nbr.lte(harvest_mask))
 
-    return base.blend(true_disturbances).blend(occlusion)
+    occlusion = msslib.addMsscvm(image, 20).select('msscvm').selfMask().add(5)
+
+    return base.blend(true_fire).blend(true_harvest).blend(occlusion)
 
 
 def get_label(aoi, year):
