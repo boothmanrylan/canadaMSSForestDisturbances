@@ -58,10 +58,11 @@ CLASSES = {
 }
 
 CLASS_PALETTE = [
-    'black', 'gold', 'darkCyan', 'fireBrick', 'purple', 'cornsilk', 'dimGrey'
+    'black', 'gold', 'darkCyan', 'orangeRed', 'red',
+    'orchid', 'purple', 'cornsilk', 'dimGrey'
 ]
 
-CLASS_VIS = {'min': 1, 'max': 7, 'palette': CLASS_PALETTE}
+CLASS_VIS = {'min': 1, 'max': 9, 'palette': CLASS_PALETTE}
 
 JUL_1 = 172 # approximate day of year for July 1st
 SEP_30 = 282 # approximate day of year for Sep. 30th
@@ -195,7 +196,7 @@ def get_basemap(year=None, aoi=None, previous=False):
     return trees.blend(water)
 
 
-def get_fire_map(year=None, aoi=None):
+def get_fire_map(year=None, aoi=None, upto=False):
     """Gets a map of forest fire for the given year and aoi.
 
     The map is based on the Canadian Forest Service's annual forest fire maps.
@@ -205,6 +206,8 @@ def get_fire_map(year=None, aoi=None):
             the most recent landcover map will be used. Must be >= 1985
         aoi: ee.Geometry, if given the map will be clipped to the aoi, if not
             given the entire map is returned.
+        upto: bool, if True, all locations that had fire up to but not including
+            year will be labeled as 1 in the output map.
 
     Returns:
         ee.Image that is 1 where there was fire and 0 otherwise
@@ -212,7 +215,13 @@ def get_fire_map(year=None, aoi=None):
     if year is None:
         year = 2020
 
-    fire = FIRE.eq(year)
+    # if upto is True, A will evalute to all zeros and fire will = B
+    # if up to False, B will evlauate to all zeros and fire will = A
+    # this allows to choose between return the current year of fire or all
+    # previous fires without an if statement
+    A = FIRE.eq(year).multiply(int(not upto))
+    B = FIRE.lt(year).multiply(int(upto))
+    fire = A.Or(B)
 
     if aoi is not None:
         fire = fire.clip(aoi)
@@ -220,7 +229,7 @@ def get_fire_map(year=None, aoi=None):
     return fire.unmask(0)
 
 
-def get_harvest_map(year=None, aoi=None):
+def get_harvest_map(year=None, aoi=None, upto=False):
     """Gets a map of harvest for the given year and aoi.
 
     The map is based on the Canadian Forest Service's annual harvest maps.
@@ -230,6 +239,8 @@ def get_harvest_map(year=None, aoi=None):
             the most recent landcover map will be used. Must be >= 1985
         aoi: ee.Geometry, if given the map will be clipped to the aoi, if not
             given the entire map is returned.
+        upto: bool, if True, all locations that had harvest up to and including
+            year will be labeled as 1 in the output map.
 
     Returns:
         ee.Image that is 1 where there was harvest and 0 otherwise
@@ -237,7 +248,13 @@ def get_harvest_map(year=None, aoi=None):
     if year is None:
         year = 2020
 
-    harvest = HARVEST.eq(year)
+    # if upto is True, A will evalute to all zeros and harvest will = B
+    # if up to False, B will evlauate to all zeros and harvest will = A
+    # this allows to choose between return the current year of harvest or all
+    # previous harvest without an if statement
+    A = HARVEST.eq(year).multiply(int(not upto))
+    B = HARVEST.lt(year).multiply(int(upto))
+    harvest = A.Or(B)
 
     if aoi is not None:
         harvest = harvest.clip(aoi)
@@ -261,11 +278,15 @@ def get_disturbance_map(year=None, aoi=None):
         ee.Image that is 1 where there was fire, 2 where there was harvest and
         0 otherwise.
     """
-    fire = get_fire_map(year, aoi)
-    harvest = get_harvest_map(year, aoi).selfMask().add(1)
-    disturbances = fire.blend(harvest)
+    previous_fire = get_fire_map(year, aoi, True)
+    fire = get_fire_map(year, aoi).selfMask().add(1)
+    fire = previous_fire.blend(fire)
 
-    return disturbances
+    previous_harvest = get_harvest_map(year, aoi, True).selfMask().add(2)
+    harvest = get_harvest_map(year, aoi).selfMask().add(3)
+    harvest = previous_harvest.blend(harvest)
+
+    return fire.blend(harvest)
 
 
 def get_disturbed_regions(year=None, aoi=None):
@@ -613,15 +634,17 @@ def label_image(image, fire_threshold=2, harvest_threshold=1):
 
     base = get_basemap(year, aoi, previous=True).add(1)
 
-    fire = get_fire_map(year, aoi).selfMask().add(3)
-    true_fire = fire.updateMask(fire_mask)
+    previous_fire = get_fire_map(year, aoi, True).selfMask().add(3)
+    fire = get_fire_map(year, aoi).selfMask().add(4)
+    fire = previous_fire.blend(fire.updateMask(fire_mask))
 
-    harvest = get_harvest_map(year, aoi).selfMask().add(4)
-    true_harvest = harvest.updateMask(harvest_mask)
+    previous_harvest = get_harvest_map(year, aoi, True).selfMask().add(5)
+    harvest = get_harvest_map(year, aoi).selfMask().add(6)
+    harvest = previous_harvest.blend(harvest.updateMask(harvest_mask))
 
-    occlusion = msslib.addMsscvm(image, 20).select('msscvm').selfMask().add(5)
+    occlusion = msslib.addMsscvm(image, 20).select('msscvm').selfMask().add(7)
 
-    return base.blend(true_fire).blend(true_harvest).blend(occlusion)
+    return base.blend(fire).blend(harvest).blend(occlusion)
 
 
 def get_label(aoi, year):
