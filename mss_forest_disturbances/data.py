@@ -456,14 +456,14 @@ def get_threshold_image(mss_image):
         ee.Image, the coincident TM NBR image to the input image, if one exists,
         if no conincident image exists, returns the input image TCA
     """
-    aoi = mss_image.geometry().centroid(10)
+    aoi = mss_image.geometry()
     day_before = mss_image.date().advance(-1, "day")
     day_after = mss_image.date().advance(1, "day")
     col = TM.filterDate(day_before, day_after).filterBounds(aoi)
 
     return ee.Image(ee.Algorithms.If(
         col.size(),
-        process_tm(col.first()).select('NBR'),
+        process_tm(col.mosaic()).select('NBR'),
         msslib.addTc(mss_image).select('tca')
     )).rename('threshold')
 
