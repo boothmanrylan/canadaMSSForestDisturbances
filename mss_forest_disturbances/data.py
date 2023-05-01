@@ -75,35 +75,25 @@ TM5_T2 = ee.ImageCollection('LANDSAT/LT05/C02/T2_L2')
 TM = TM4_T1.merge(TM4_T2).merge(TM5_T1).merge(TM5_T2)
 
 
-def get_landcover(year=None, aoi=None):
-    """Gets a landcover map for the given year and aoi.
+def get_landcover(year=1984):
+    """Gets a landcover map for the given year.
 
     The map is the Canada Forested Landcover VLCE2 map.
 
     Args:
-        year: integer, if given the year to get the map for, if not given
-            the most recent landcover map will be used. Must be >= 1984
-        aoi: ee.Geometry, if given the map will be clipped to the aoi, if not
-            given the entire landcover map is returned.
+        year: integer >= 1984, the year to get the map for.
 
     Returns:
         ee.Image
     """
-    if year is None:
-        landcover = LANDCOVER.sort('system:time_start', False).first()
-    else:
-        start = ee.Date.fromYMD(year, 1, 1)
-        end = ee.Date.fromYMD(year, 12, 31)
-        landcover = LANDCOVER.filterDate(start, end).first()
-
-    if aoi is not None:
-        landcover = landcover.clip(aoi)
-
-    return landcover
+    year = ee.Number(year).max(1984)
+    start = ee.Date.fromYMD(year, 1, 1)
+    end = ee.Date.fromYMD(year, 12, 31)
+    return LANDCOVER.filterDate(start, end).first()
 
 
-def get_treed_mask(year=None, aoi=None, previous=False):
-    """Gets a tree mask for the given year and aoi.
+def get_treed_mask(year=1984):
+    """Gets a tree mask for the given year.
 
     The mask is based on the Canada Forested Landcover VLCE2 map.
     Classes 81 (wetland treed), 210 (coniferous), 220 (broadleaf), and
@@ -113,34 +103,16 @@ def get_treed_mask(year=None, aoi=None, previous=False):
     This method is based on Flavie Pelletier's treedMask script.
 
     Args:
-        year: integer, if given the year to get the tree mask for, if not given
-            the most recent landcover map will be used. Must be >= 1984
-        aoi: ee.Geometry, if given the mask will be clipped to the aoi, if not
-            given the entire landcover map is returned.
-        previous: bool, if True the treed mask from the year before is
-            returned, this is useful for making a map of disturbances for a
-            single image in the given year if that image was acquired before
-            the disturbance occured.
+        year: integer >= 1984, the year to get the tree mask for.
 
     Returns:
         ee.Image that is 1 where there are trees and 0 otherwise
     """
-    if year is None:
-        landcover = LANDCOVER.sort('system:time_start', False).first()
-    else:
-        if previous:
-            year = ee.Number(year).subtract(1)
-        start = ee.Date.fromYMD(year, 1, 1)
-        end = ee.Date.fromYMD(year, 12, 31)
-        landcover = LANDCOVER.filterDate(start, end).first()
-
-    if aoi is not None:
-        landcover = landcover.clip(aoi)
-
+    landcover = get_landcover(year)
     return landcover.eq(81).Or(landcover.gte(210))
 
 
-def get_water_mask(year=None, aoi=None):
+def get_water_mask(year=1984):
     """Gets a water mask for the given year and aoi.
 
     The returned mask can be used like this:
@@ -152,144 +124,116 @@ def get_water_mask(year=None, aoi=None):
     The mask is based on the Canada Forested Landcover VLCE2 map.
 
     Args:
-        year: integer, if given the year to get the water mask for, if not given
-            the most recent landcover map will be used. Must be >= 1984
-        aoi: ee.Geometry, if given the mask will be clipped to the aoi, if not
-            given the entire landcover map is returned.
+        year: integer >= 1984, the year to get the water mask for.
 
     Returns:
         ee.Image that is 0 where there is water and 1 otherwise
     """
-    if year is None:
-        landcover = LANDCOVER.sort('system:time_start', False).first()
-    else:
-        start = ee.Date.fromYMD(year, 1, 1)
-        end = ee.Date.fromYMD(year, 12, 31)
-        landcover = LANDCOVER.filterDate(start, end).first()
-
-    if aoi is not None:
-        landcover = landcover.clip(aoi)
-
+    landcover = get_landcover(year)
     return landcover.neq(20)
 
 
-def get_basemap(year=None, aoi=None, previous=False):
-    """Gets a tress/water/other map for the given year and aoi.
+def get_basemap(year=1984, lookback=0):
+    """Gets a tress/water/other map for the given year.
 
     The map is based on the Canada Forested Landcover VLCE2 map.
 
     Args:
-        year: integer, if given the year to get the map for, if not given
-            the most recent landcover map will be used. Must be >= 1984
-        aoi: ee.Geometry, if given the mask will be clipped to the aoi, if not
-            given the entire landcover map is returned.
-        previous: bool, if true use the tree mask from the previous year, this
-            is useful if making the labels for a single image that may have
-            been acquired before a disturbance took place.
+        year: integer >= 1984, the year to get the map for.
+        lookback: integer, the tree/no tree labels will be drawn lookback years
+            before the given year
 
     Returns:
         ee.Image that is 1 where there are trees, 2 where there is water,
         and 0 otherwise.
     """
-    trees = get_treed_mask(year, aoi, previous=previous)
-    water = get_water_mask(year, aoi).Not().selfMask().add(1)
+    trees = get_treed_mask(ee.Number(year).subtract(lookback))
+    water = get_water_mask(year).Not().selfMask().add(1)
     return trees.blend(water)
 
 
-def get_fire_map(year=None, aoi=None, upto=False):
-    """Gets a map of forest fire for the given year and aoi.
+def get_previous_fire_map(year=1985):
+    """ Get a map of all fire up to but not including year.
 
     The map is based on the Canadian Forest Service's annual forest fire maps.
 
     Args:
-        year: integer, if given the year to get the map for, if not given
-            the most recent landcover map will be used. Must be >= 1985
-        aoi: ee.Geometry, if given the map will be clipped to the aoi, if not
-            given the entire map is returned.
-        upto: bool, if True, all locations that had fire up to but not including
-            year will be labeled as 1 in the output map.
+        year, integer >= 1985.
+
+    Returns:
+        ee.Image that is 1 where there was fire prior to year and 0 otherwise.
+    """
+    return FIRE.lt(year).unmask(0)
+
+
+def get_fire_map(year=1985):
+    """Gets a map of forest fire for the given year.
+
+    The map is based on the Canadian Forest Service's annual forest fire maps.
+
+    Args:
+        year: integer >= 1985, the year to get the map for.
 
     Returns:
         ee.Image that is 1 where there was fire and 0 otherwise
     """
-    if year is None:
-        year = 2020
-
-    # if upto is True, A will evalute to all zeros and fire will = B
-    # if up to False, B will evlauate to all zeros and fire will = A
-    # this allows to choose between return the current year of fire or all
-    # previous fires without an if statement
-    A = FIRE.eq(year).multiply(int(not upto))
-    B = FIRE.lt(year).multiply(int(upto))
-    fire = A.Or(B)
-
-    if aoi is not None:
-        fire = fire.clip(aoi)
-
-    return fire.unmask(0)
+    return FIRE.eq(year).unmask(0)
 
 
-def get_harvest_map(year=None, aoi=None, upto=False):
-    """Gets a map of harvest for the given year and aoi.
+def get_previous_harvest_map(year=1985):
+    """ Gets a map of all harvest up to but not including year.
 
     The map is based on the Canadian Forest Service's annual harvest maps.
 
     Args:
-        year: integer, if given the year to get the map for, if not given
-            the most recent landcover map will be used. Must be >= 1985
-        aoi: ee.Geometry, if given the map will be clipped to the aoi, if not
-            given the entire map is returned.
-        upto: bool, if True, all locations that had harvest up to and including
-            year will be labeled as 1 in the output map.
+        year: integer >= 1985
+
+    Returns:
+        ee.Image that is 1 where there was harvest prior to year and 0
+        otherwise.
+    """
+    return HARVEST.lt(year).unmask(0)
+
+
+def get_harvest_map(year=1985):
+    """Gets a map of harvest for the given year.
+
+    The map is based on the Canadian Forest Service's annual harvest maps.
+
+    Args:
+        year: integer >= 1985, the year to get the map for.
 
     Returns:
         ee.Image that is 1 where there was harvest and 0 otherwise
     """
-    if year is None:
-        year = 2020
-
-    # if upto is True, A will evalute to all zeros and harvest will = B
-    # if up to False, B will evlauate to all zeros and harvest will = A
-    # this allows to choose between return the current year of harvest or all
-    # previous harvest without an if statement
-    A = HARVEST.eq(year).multiply(int(not upto))
-    B = HARVEST.lt(year).multiply(int(upto))
-    harvest = A.Or(B)
-
-    if aoi is not None:
-        harvest = harvest.clip(aoi)
-
-    return harvest.unmask(0)
+    return HARVEST.eq(year).unmask(0)
 
 
-def get_disturbance_map(year=None, aoi=None):
-    """Gets a map of typed forest disturbances for the given year and aoi.
+def get_disturbance_map(year=1985):
+    """Gets a map of typed forest disturbances for the given year.
 
     The map is based on the Canadian Forest Service's annual harvest and fire
     maps.
 
     Args:
-        year: integer, if given the year to get the map for, if not given
-            the most recent landcover map will be used. Must be >= 1985
-        aoi: ee.Geometry, if given the map will be clipped to the aoi, if not
-            given the entire map is returned.
+        year: integer >= 1985, the year to get the map for.
 
     Returns:
         ee.Image that is 1 where there was fire, 2 where there was harvest and
         0 otherwise.
     """
-    previous_fire = get_fire_map(year, aoi, True)
-    fire = get_fire_map(year, aoi).selfMask().add(1)
+    previous_fire = get_previous_fire_map(year)
+    fire = get_fire_map(year).selfMask().add(1)
     fire = previous_fire.blend(fire)
 
-    previous_harvest = get_harvest_map(year, aoi, True).selfMask().add(2)
-    harvest = get_harvest_map(year, aoi).selfMask().add(3)
+    previous_harvest = get_previous_harvest_map(year).selfMask().add(2)
+    harvest = get_harvest_map(year).selfMask().add(3)
     harvest = previous_harvest.blend(harvest)
 
     return fire.blend(harvest)
 
 
-def get_disturbed_regions(year=None, aoi=None):
+def get_disturbed_regions(year=1985):
     """ Returns a map of all disturbances for a given year and aoi.
 
     The result will be 1 wherever there was a disturbance and 0 otherwise.
@@ -297,27 +241,14 @@ def get_disturbed_regions(year=None, aoi=None):
     get_disturbance_map()
 
     Args:
-        year: int, if given only disturbances that occurred during this year
-            are returned, if not disturbances from all years are returned.
-        aoi: ee.Geometry, if given the map will be clipped to the aoi, if not
-            given the entire map is returned.
+        year: integer >= 1985, the year to get disturbed regions for.
 
     Returns:
-        ee.Image, map of disturbances.
+        ee.Image, that is 1 where a disturbance occurred and 0 otherwise.
     """
-    if year is not None:
-        fire = FIRE.eq(year).selfMask().unmask(0)
-        harvest = HARVEST.eq(year).selfMask().unmask(0)
-    else:
-        fire = FIRE.gt(0).selfMask().unmask(0)
-        harvest = HARVEST.gt(0).selfMask().unmask(0)
-
-    disturbances = harvest.Or(fire)
-
-    if aoi is not None:
-        disturbances = disturbances.clip(aoi)
-
-    return disturbances
+    fire = get_fire_map(year)
+    harvest = get_harvest_map(year)
+    return fire.Or(harvest)
 
 
 def build_grid(aoi, proj, scale, chip_size, overlap_size=0):
@@ -378,7 +309,7 @@ def get_disturbed_grid_cells(grid, year):
 
     disturbed = join.apply(grid, large_disturbances, intersect_filter)
     undisturbed = invert_join.apply(grid, large_disturbances, intersect_filter)
-    
+
     return disturbed, undisturbed
 
 
@@ -565,7 +496,7 @@ def get_disturbance_masks(image, fire_threshold=2, harvest_threshold=1):
 
     threshold = get_threshold_image(image)
 
-    undisturbed = threshold.updateMask(get_treed_mask(year, previous=True))
+    undisturbed = threshold.updateMask(get_treed_mask(year.subtract(1)))
 
     mean_undisturbed = undisturbed.reduceRegion(
         geometry=aoi,
@@ -586,7 +517,6 @@ def get_disturbance_masks(image, fire_threshold=2, harvest_threshold=1):
     )
 
     return threshold.lte(fire_mask), threshold.lte(harvest_mask)
-
 
 
 def label_image(image, fire_threshold=2, harvest_threshold=1):
@@ -632,19 +562,19 @@ def label_image(image, fire_threshold=2, harvest_threshold=1):
         harvest_threshold
     )
 
-    base = get_basemap(year, aoi, previous=True).add(1)
+    base = get_basemap(year, lookback=1).add(1)
 
-    previous_fire = get_fire_map(year, aoi, True).selfMask().add(3)
-    fire = get_fire_map(year, aoi).selfMask().add(4)
+    previous_fire = get_previous_fire_map(year).selfMask().add(3)
+    fire = get_fire_map(year).selfMask().add(4)
     fire = previous_fire.blend(fire.updateMask(fire_mask))
 
-    previous_harvest = get_harvest_map(year, aoi, True).selfMask().add(5)
-    harvest = get_harvest_map(year, aoi).selfMask().add(6)
+    previous_harvest = get_previous_harvest_map(year).selfMask().add(5)
+    harvest = get_harvest_map(year).selfMask().add(6)
     harvest = previous_harvest.blend(harvest.updateMask(harvest_mask))
 
     occlusion = msslib.addMsscvm(image, 20).select('msscvm').selfMask().add(7)
 
-    return base.blend(fire).blend(harvest).blend(occlusion)
+    return base.blend(fire).blend(harvest).blend(occlusion).clip(aoi)
 
 
 def get_label(aoi, year):
@@ -665,8 +595,8 @@ def get_label(aoi, year):
     Returns:
         ee.Image with one integer band contianing the class of each pixel.
     """
-    base = get_basemap(year, aoi, previous=False).add(1)
-    disturbances = get_disturbance_map(year, aoi).selfMask().add(3)
+    base = get_basemap(year).add(1)
+    disturbances = get_disturbance_map(year).selfMask().add(3)
     return base.blend(disturbances)
 
 
