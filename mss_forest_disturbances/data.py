@@ -58,7 +58,7 @@ CLASSES = {
 }
 
 CLASS_PALETTE = [
-    'black', 'gold', 'darkCyan', 'orangeRed', 'red',
+    'black', 'gold', 'darkCyan', 'darkOrange', 'red',
     'orchid', 'purple', 'cornsilk', 'dimGrey'
 ]
 
