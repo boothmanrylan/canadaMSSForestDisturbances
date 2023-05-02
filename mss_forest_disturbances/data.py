@@ -544,7 +544,7 @@ def get_disturbance_masks(image, fire_stds=2, harvest_stds=1, mss_adjust=-1):
     return fire_mask, harvest_mask, band_index
 
 
-def label_image(image, fire_threshold=2, harvest_threshold=1):
+def label_image(image, fire_threshold=2, harvest_threshold=1, mss_adjust=-1):
     """Creates the target labels for a given MSS image.
 
     Pixels are labelled as forest, non-forest, burn, harvest, water, cloud,
@@ -574,6 +574,8 @@ def label_image(image, fire_threshold=2, harvest_threshold=1):
             Canadian Forest Service needs to be to be labeled as harvest.
             Necessary to do this check because the image may have been
             acquired before the disturbance occurred.
+        mss_adjust: int, how far to adjust fire_stds and harvest_stds when
+            falling back to the MSS image.
 
     Returns:
         an ee.Image with one integer band containing the class of each pixel.
@@ -584,7 +586,8 @@ def label_image(image, fire_threshold=2, harvest_threshold=1):
     fire_mask, harvest_mask, _ = get_disturbance_masks(
         image,
         fire_threshold,
-        harvest_threshold
+        harvest_threshold,
+        mss_adjust
     )
 
     base = get_basemap(year, lookback=1).add(1)
