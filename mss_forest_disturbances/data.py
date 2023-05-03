@@ -605,6 +605,25 @@ def label_image(image, fire_threshold=2, harvest_threshold=1, mss_adjust=-1):
     return base.blend(fire).blend(harvest).blend(occlusion).clip(aoi)
 
 
+def add_label(image, *args, **kwargs):
+    """ Helper function to add result of label_image as a band to the input.
+
+    See label_image for a more complete description.
+
+    Args:
+        image: ee.Image
+        args: other arguments to pass to label_image
+        kwargs: other named arguments to pass to label_image
+
+    Returns:
+        ee.Image, the input plus an additional band called "label" that is the
+        result of calling label_image with the parameters passed to this
+        function.
+    """
+    label = label_image(image, *args, **kwargs).rename("label")
+    return image.addBands(label)
+
+
 def get_label(aoi, year):
     """ Create target labelling for the given year and aoi.
 
@@ -686,3 +705,70 @@ def get_data_for_cell(cell, lookback=3, lookahead=3):
     output['true_label'] = get_label(cell, year)
 
     return output
+
+
+def sample_image(image, points_per_class=2, num_classes=9):
+    """ Given an image return a stratified sample of points from it.
+
+    Args:
+        image: ee.Image to sample points from.
+        points_per_class: integer, how many points to sample from each class in
+            the input image.
+        num_classes: integer, how many classes are in the image. Classe labels
+            should run from 0 to num_classes - 1.
+
+    Returns:
+        ee.FeatureCollection, one feature per point, each feature as one
+            property per band containing the band value at the point.
+    """
+    def _sample(im):
+        return im.sample(
+            region=im.geometry(),
+            scale=60,
+            numPixels=1000 * points_per_class,
+            dropNulls=True
+        ).limit(points_per_class)
+
+    label = image.select('label')
+    classes = ee.List.sequence(0, num_classes - 1).map(
+        lambda x: ee.Image.constant(x)
+    )
+    class_images = ee.ImageCollection(classes.map(
+        lambda x: image.updateMask(label.eq(x)))
+    )
+    class_samples = class_images.map(_sample)
+    samples = class_samples.flatten()
+    samples = samples.map(
+        lambda x: x.set('image', image.get('LANDSAT_SCENE_ID'))
+    )
+    return samples
+
+
+def sample_points(cell):
+    """ Given a grid cell create a dataset of labeled points to train a RF.
+
+    Samples points from each image that overlaps with the grid during the year
+    the grid was sampled from. Returns the flattened collection.
+
+    Args:
+        cell: ee.Geometry e.g., originating from train_test_val_split()
+
+    Returns:
+        ee.FeatureCollection containing one feature per point that was samples
+        where each feature has one property per band.
+    """
+    year = cell.getNumber('year')
+    cell = cell.geometry()
+
+    col = msslib.getCol(
+        aoi=cell,
+        yearRange=[year, year],
+        doyRange=DOY_RANGE,
+        maxCloudCover=100
+    ).map(msslib.calcToa).map(add_label).map(lambda im: im.clip(cell))
+
+    samples = col.map(sample_image).flatten()
+    samples = samples.map(
+        lambda x: x.set('year', year)
+    )
+    return samples
