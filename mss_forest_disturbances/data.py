@@ -28,6 +28,7 @@ LANDCOVER = ee.ImageCollection('projects/sat-io/open-datasets/CA_FOREST_LC_VLCE2
 FIRE = ee.Image('users/boothmanrylan/NTEMSCanada/forest_fire_1985-2020')
 HARVEST = ee.Image('users/boothmanrylan/NTEMSCanada/harvest_1985-2020')
 ECOZONES = ee.FeatureCollection('users/boothmanrylan/forest_dominated_ecozones')
+PROJECTION = LANDCOVER.first().projection().atScale(60)
 
 LANDCOVER_CLASSES = {
     0: "Unclassified", 20: "Water", 31: "Snow/Ice", 32: "Rock/Rubble",
@@ -75,6 +76,24 @@ TM5_T2 = ee.ImageCollection('LANDSAT/LT05/C02/T2_L2')
 TM = TM4_T1.merge(TM4_T2).merge(TM5_T1).merge(TM5_T2)
 
 
+def reduce_resolution(im):
+    """ Explicitly reduce the resolution of a 1/0 image from 30m Landsat data.
+
+    Adapted from:
+    https://developers.google.com/earth-engine/guides/resample#reduce_resolution
+
+    Args:
+        im: ee.Image
+
+    Returns:
+        ee.Image
+    """
+    return im.reduceResolution(
+        reducer=ee.Reducer.max(),  # if any pixel is 1 make the output 1
+        maxPixels=1024,
+    ).reproject(crs=PROJECTION)
+
+
 def get_landcover(year=1984):
     """Gets a landcover map for the given year.
 
@@ -109,7 +128,7 @@ def get_treed_mask(year=1984):
         ee.Image that is 1 where there are trees and 0 otherwise
     """
     landcover = get_landcover(year)
-    return landcover.eq(81).Or(landcover.gte(210))
+    return reduce_resolution(landcover.eq(81).Or(landcover.gte(210)))
 
 
 def get_water_mask(year=1984):
@@ -130,7 +149,7 @@ def get_water_mask(year=1984):
         ee.Image that is 0 where there is water and 1 otherwise
     """
     landcover = get_landcover(year)
-    return landcover.neq(20)
+    return reduce_resolution(landcover.neq(20))
 
 
 def get_basemap(year=1984, lookback=0):
@@ -163,7 +182,8 @@ def get_previous_fire_map(year=1985):
     Returns:
         ee.Image that is 1 where there was fire prior to year and 0 otherwise.
     """
-    return FIRE.lt(year).unmask(0)
+    year = ee.Image.constant(year)
+    return reduce_resolution(FIRE.lt(year).unmask(0))
 
 
 def get_fire_map(year=1985):
@@ -177,7 +197,8 @@ def get_fire_map(year=1985):
     Returns:
         ee.Image that is 1 where there was fire and 0 otherwise
     """
-    return FIRE.eq(year).unmask(0)
+    year = ee.Image.constant(year)
+    return reduce_resolution(FIRE.eq(year).unmask(0))
 
 
 def get_previous_harvest_map(year=1985):
@@ -192,7 +213,8 @@ def get_previous_harvest_map(year=1985):
         ee.Image that is 1 where there was harvest prior to year and 0
         otherwise.
     """
-    return HARVEST.lt(year).unmask(0)
+    year = ee.Image.constant(year)
+    return reduce_resolution(HARVEST.lt(year).unmask(0))
 
 
 def get_harvest_map(year=1985):
@@ -206,7 +228,8 @@ def get_harvest_map(year=1985):
     Returns:
         ee.Image that is 1 where there was harvest and 0 otherwise
     """
-    return HARVEST.eq(year).unmask(0)
+    year = ee.Image.constant(year)
+    return reduce_resolution(HARVEST.eq(year).unmask(0))
 
 
 def get_disturbance_map(year=1985):
@@ -251,7 +274,7 @@ def get_disturbed_regions(year=1985):
     return fire.Or(harvest)
 
 
-def build_grid(aoi, proj, scale, chip_size, overlap_size=0):
+def build_grid(aoi, chip_size, overlap_size=0):
     """ Creates a tiled grid that covers aoi.
 
     Each grid cell will be a square that ischip_size pixels wide in the given
@@ -260,8 +283,6 @@ def build_grid(aoi, proj, scale, chip_size, overlap_size=0):
 
     Args:
         aoi: ee.Geometry to create a grid for
-        proj: ee.Projection to perform the tiling in, must cover all of aoi
-        scale: int, the nominalScale in meters of one pixel
         chip_size: int, the grid cell size in pixels
         overlap_size: int, optional, the amount of overlap in pixels between
             adjacent grid cells
@@ -269,14 +290,55 @@ def build_grid(aoi, proj, scale, chip_size, overlap_size=0):
     Returns:
         ee.FeatureCollection
     """
-    def buffer_and_bound(feat):
-        return ee.Feature(feat.geometry().buffer(overlap, 1).bounds(1, proj))
+    def buffer_and_bound(feat, overlap):
+        return ee.Feature(feat
+            .geometry(0.1, PROJECTION)
+            .buffer(overlap_size, ee.ErrorMargin(0.1, 'projected'), PROJECTION)
+            .bounds(0.1, PROJECTION)
+        )
 
-    patch = (chip_size - overlap_size) * scale
-    overlap = overlap_size * scale
+    scale = PROJECTION.nominalScale()
+    patch = scale.multiply(chip_size - overlap_size)
+    overlap = scale.multiply(overlap_size)
 
-    grid = aoi.coveringGrid(proj.atScale(scale), patch)
-    return grid.map(buffer_and_bound)
+    grid = aoi.coveringGrid(PROJECTION, patch)
+    return grid.map(lambda x: buffer_and_bound(x, overlap)).filterBounds(aoi)
+
+
+def build_land_covering_grid(aoi, chip_size, overlap_size=0):
+    """ Creates a tiled grid that covers aoi, excluding water dominant tiles.
+
+    See build_grid()
+
+    Args:
+        aoi: ee.Geometry
+        chip_size: int
+        overlap_size: int
+
+    Returns:
+        ee.FeatureCollection
+    """
+    landcover = ee.ImageCollection(ee.List.sequence(1984, 1995).map(
+        lambda y: get_water_mask(y).And(reduce_resolution(get_landcover(y).gt(0)))
+    )).reduce(ee.Reducer.sum()).gt(0).selfMask().rename("landcover")
+
+    grid = build_grid(aoi, chip_size, overlap_size)
+
+    grid = grid.map(
+        lambda x: x.set(
+            "landcover",
+            landcover.sample(
+                x.geometry(),
+                scale=60,
+                numPixels=100,
+                dropNulls=False
+            ).aggregate_array("landcover").size(),
+            "ecozone",
+            ECOZONES.filterBounds(x.geometry()).first().get('ECOZONE_ID')
+        )
+    )
+
+    return grid.filter(ee.Filter.gte("landcover", 30))
 
 
 def get_disturbed_grid_cells(grid, year):
@@ -343,46 +405,40 @@ def sample_grid_cells(grid, n, percent_disturbed, year):
     return disturbed_cells, undisturbed_cells
 
 
-def train_test_val_split(grid, year, n, ptrain, ptest, pval, pdisturbed):
+def train_test_val_split(grid, n, ptrain, ptest, pval):
     """ Samples cells from grid to make train/test/validation splits.
+
+    Samples n cells from the grid.
 
     Args:
         grid: ee.FeatureCollection, e.g. originating from build_grid()
-        year: int, the year to base disturbances off of
         n: int, the total number of cells to sample
         ptrain: float, percentage of samples to allocate to the train split
         ptest: float, percentage of samples to allocate to the test split
         pval: float, percentage of samples to allocate to the val split
-        pdisturbed: float, percentage of cells to enforce overlapping with a
-            disturbance
 
     Returns:
         3-tuple of ee.FeatureCollections (train, test, validation)
     """
-    disturbed, undisturbed = sample_grid_cells(grid, n, pdisturbed, year)
+    grid = grid.randomColumn('rand', 42)
+    grid = grid.sort('rand')
 
-    def sample_and_merge(count1, count2, offset1, offset2):
-        # grab count1 samples starting at offset1 from disturbed
-        # grab count2 samples starting at offset2 from undisurbed
-        # merge and shuffle
-        d = ee.FeatureCollection(disturbed.toList(count1, offset1))
-        u = ee.FeatureCollection(undisturbed.toList(count2, offset2))
-        return d.merge(u).randomColumn('rand', 42).sort('rand')
+    n = ee.Number(n)
+    train_count = n.multiply(ptrain).ceil()
+    test_count = n.multiply(ptest).ceil()
+    val_count = n.multiply(pval).ceil()
 
-    trnc1 = disturbed.size().multiply(ptrain).ceil()
-    trnc2 = undisturbed.size().multiply(ptrain).ceil()
-    tstc1 = disturbed.size().multiply(ptest).ceil()
-    tstc2 = undisturbed.size().multiply(ptest).ceil()
-    valc1 = disturbed.size().multiply(pval).ceil()
-    valc2 = undisturbed.size().multiply(pval).ceil()
-
-    # we don't need to shuffle before selecting b/c that is already done in
-    # sample_grid_cells
-    train = sample_and_merge(trnc1, trnc2, 0, 0)
-    test = sample_and_merge(tstc1, tstc2, trnc1, trnc2)
-    val = sample_and_merge(valc1, valc2, trnc1.add(tstc1), trnc2.add(tstc2))
-
+    train = ee.FeatureCollection(
+        grid.toList(train_count, 0)
+    )
+    test = ee.FeatureCollection(
+        grid.toList(test_count, train_count)
+    )
+    val = ee.FeatureCollection(
+        grid.toList(val_count, train_count.add(test_count))
+    )
     return train, test, val
+
 
 
 def bitwise_extract(image, from_bit, to_bit):
@@ -438,6 +494,20 @@ def mss_clear_mask(image):
     qa = image.select('QA_PIXEL')
     mask = bitwise_extract(qa, 3, 3).eq(0)
     return image.updateMask(mask)
+
+
+def add_mss_clear_mask(image):
+    """ Adds the QA_PIXEL mask as a band to the input image.
+
+    Args:
+        image: ee.Image originating from msslib.getCol
+
+    Returns:
+        ee.Image, the input image with an additional band called qa_mask
+    """
+    qa = image.select('QA_PIXEL')
+    mask = bitwise_extract(qa, 3, 3).eq(0).rename('qa_mask')
+    return image.addBands(mask)
 
 
 def process_tm(image):
@@ -507,16 +577,16 @@ def get_disturbance_masks(image, fire_stds=2, harvest_stds=1, mss_adjust=-1):
     )).rename('threshold')
 
     # lower the threshold requirements if falling back to the MSS image
-    fire_stds = ee.Algorithms.If(
+    fire_stds = ee.Number(ee.Algorithms.If(
         use_tm,
         fire_stds,
         max(fire_stds + mss_adjust, 0)
-    )
-    harvest_std = ee.Algorithms.If(
+    ))
+    harvest_stds = ee.Number(ee.Algorithms.If(
         use_tm,
         harvest_stds,
         max(harvest_stds + mss_adjust, 0)
-    )
+    ))
 
     # set the threshold based on the mean undisturbed band index
     undisturbed_index = band_index.updateMask(get_treed_mask(year.subtract(1)))
@@ -525,17 +595,32 @@ def get_disturbance_masks(image, fire_stds=2, harvest_stds=1, mss_adjust=-1):
         scale=600,
         reducer=ee.Reducer.mean()
     ).getNumber('threshold')
+
+    # it is possible that all of aoi gets masked and the reducer returns None
+    mean_undisturbed_index = ee.Number(ee.Algorithms.If(
+        mean_undisturbed_index,
+        mean_undisturbed_index,
+        1000
+    ))
+
     std_undisturbed_index = undisturbed_index.reduceRegion(
         geometry=aoi,
         scale=600,
         reducer=ee.Reducer.stdDev()
     ).getNumber('threshold')
 
+    # it is possible that all of aoi gets masked and the reducer returns None
+    std_undisturbed_index = ee.Number(ee.Algorithms.If(
+        std_undisturbed_index,
+        std_undisturbed_index,
+        1
+    ))
+
     fire_threshold = mean_undisturbed_index.subtract(
-        std_undisturbed_index.multiply(fire_stds)
+        fire_stds.multiply(std_undisturbed_index)
     )
     harvest_threshold = mean_undisturbed_index.subtract(
-        std_undisturbed_index.multiply(harvest_stds)
+        harvest_stds.multiply(std_undisturbed_index)
     )
 
     fire_mask = band_index.lte(fire_threshold)
@@ -644,65 +729,224 @@ def get_label(aoi, year):
     """
     base = get_basemap(year).add(1)
     disturbances = get_disturbance_map(year).selfMask().add(3)
-    return base.blend(disturbances)
+    return base.blend(disturbances).clip(aoi)
 
 
-def get_data_for_cell(cell, lookback=3, lookahead=3):
+def normalize_tca(image):
+    """ Normalized tca values to ~[0, 1].
+
+    Tasseled Cap Angle is defined in msslib as:
+        atan(greeness / brightness) * (180 / pi)
+
+    It therefore ranges from 0 to 90
+
+    Args:
+        ee.Image
+
+    Returns:
+        ee.Image
+    """
+    tca = ee.Image(image).select(['tca'])
+    tca = tca.divide(90)
+    return image.addBands(tca, ['tca'], True)
+
+
+def get_data_for_cell(cell, first_year=1982, last_year=1995):
     """ Return the inputs and target labels for the given cell.
 
-    Returns an image collection containing all the MSS images from lookback
-    years prior to the year of cell, an image collection containing all the MSS
-    images from the year of cell, an image collection containing the labels for
-    each MSS image acquired within the year of the cell, an image collection
-    containing all the MSS images from lookahead years after the year of the
-    cell, and an image containing the true label of cell during the year of the
-    cell.
+    Returns all images of cell between first_year and last_year (inclusive),
+    along with the labels of each individual image and the label of each year.
 
     Args:
         cell: ee.Geometry, the aoi to get the inputs and target labels for
-            (e.g. this function can be mapped across on of the outputs of
+            (e.g. this function can be mapped across one of the outputs of
             train_test_val_split)
-        lookback: int, the number of years of data to include in the lookback
-            collection
-        lookahead: int, the number of years of data to include in the lookahead
-            collection
+        first_year: int, the year to start getting images from (inclusive)
+        last_year: int, the last year to get images from (inclusive)
 
     Returns:
-        dictionary: keys are current_col, lookback_col, lookahead_col,
-        label_col, and true_label
+        2-tuple of dict mapping int -> ee.ImageCollection/ee.Image. In each
+        dict, the keys are the years, the values are all the images of the cell
+        during that year. The first dict contains the MSS images converted to
+        TOA with the TCA and the pixel labels added, the second dict contains
+        the "final" label for each year.
     """
-    year = cell.getNumber('year')
-    cell = cell.geometry()
+    def get_col(year):
+        col = msslib.getCol(
+            aoi=cell,
+            yearRange=[year, year],
+            doyRange=DOY_RANGE,
+            maxCloudCover=100
+        )
+        col = col.map(msslib.calcToa).map(msslib.addTc)
+        # col = col.map(lambda im: im.clip(cell))
+        col = col.map(add_label)
+        col = col.map(add_mss_clear_mask)
 
-    def clip(im):
-        return im.clip(cell)
+        bands = ['nir', 'red_edge', 'red', 'green', 'tca', 'qa_mask']
+        col = col.map(lambda im: im.select(bands))
 
-    output = {}
-    output['current_col'] = msslib.getCol(
-        aoi=cell,
-        yearRange=[year, year],
-        doyRange=DOY_RANGE,
-        maxCloudCover=100
-    ).map(msslib.calcToa)
+        col = col.map(normalize_tca)
+        col = col.map(lambda im: im.reproject(PROJECTION))
+        return col
 
-    output['label_col'] = output['current_col'].map(label_image).map(clip)
-    output['current_col'] = output['current_col'].map(clip)
+    years = ee.List.sequence(first_year, last_year)
+    keys = years.map(lambda x: ee.Number(x).int().format())
+    images = years.map(get_col)
+    labels = years.map(lambda y: get_label(cell, y))
 
-    output['lookback_col'] = msslib.getCol(
-        aoi=cell,
-        yearRange=[year.subtract(lookback - 1), year.subtract(1)],
-        doyRange=DOY_RANGE,
-        maxCloudCover=100
-    ).map(msslib.calcToa).map(clip)
+    images = ee.Dictionary.fromLists(keys, images)
+    labels = ee.Dictionary.fromLists(keys, labels)
 
-    output['lookahead_col'] = msslib.getCol(
-        aoi=cell,
-        yearRange=[year.add(1), year.add(lookahead + 1)],
-        doyRange=DOY_RANGE,
-        maxCloudCover=100,
-    ).map(msslib.calcToa).map(clip)
+    return images, labels
 
-    output['true_label'] = get_label(cell, year)
+
+def convert_image_to_array(image, cell, patch_size):
+    """ Converts an image to an array with shape (H, W, C)
+
+    Args:
+        image: ee.Image
+        cell: ee.Geometry, passed to sampleRectangle
+        patch_size: int, the width and height of cell in pixels
+
+    Returns:
+        ee.Array
+    """
+    def reshape(arr):
+        arr = ee.Array(arr)
+        return arr.reshape([patch_size, patch_size, 1])
+
+    image = ee.Image(image)
+    bands = image.bandNames()
+    array = image.reproject(PROJECTION).sampleRectangle(cell, defaultValue=0)
+
+    band_arrays = bands.map(lambda x: reshape(array.get(x)))
+
+    return ee.Array.cat(band_arrays, 2)
+
+
+def convert_collection_to_array(col, cell, patch_size):
+    """ Converts an imagecollection to an array with shape (N, H, W, C)
+
+    Args:
+        col: ee.ImageCollection,
+        cell: ee.Geometry, passed to sampleRectangle
+        patch_size: int, the width and height of cell in pixels
+
+    Returns:
+        ee.Array
+    """
+    def _helper(col):
+        col = col.toList(col.size())
+        col = col.map(
+            lambda x: convert_image_to_array(x, cell, patch_size)
+        )
+        col = col.map(
+            lambda x: ee.Array(x).reshape([1, patch_size, patch_size, -1])
+        )
+        return ee.Array.cat(col, 0)
+
+    col = ee.ImageCollection(col)
+
+    return ee.Algorithms.If(
+        col.size(),
+        _helper(col),
+        ee.Array([], ee.PixelType.float())
+    )
+
+
+def get_dates(col):
+    """ Returns the date of each image in col as an array.
+
+    Args:
+        col: ee.ImageCollection
+
+    Returns:
+        ee.Array containing the date of each image in the input in epoch time.
+    """
+    def _helper(col):
+        col = col.toList(col.size())
+        col = col.map(lambda im: ee.Image(im).date().millis())
+        return ee.Array(col)
+
+    col = ee.ImageCollection(col)
+
+    return ee.Algorithms.If(
+        col.size(),
+        _helper(col),
+        ee.Array([], ee.PixelType.float())
+    )
+
+
+def prepare_export(cell, patch_size, first_year=1982, last_year=1995):
+    """ Converts data for a grid cell into a feature to export as a TFRecord.
+
+    See get_data_for_cell() for a better description of the returned data.
+
+    Args:
+        cell: ee.Geometry
+        first_year: int
+        last_year: int
+
+    Returns:
+        ee.Feature with the following properties: a digital elevation model
+        called "dem", the latitude and longitude of the centroid of the cell
+        called "lat", and "long" respectively, the height and width of a cell
+        in pixels called "height" and "width" respectively, and a list of the
+        bands in each image called "bands". And then for each year between
+        first_year and last_year (inclusive) a property containing the number
+        of images in that year called "num{year}", all of the images in that
+        year as an array with shape (N, H, W, C) called "array{year}", an array
+        of the end of year label for a year called "label{year}", and a list of
+        the dates of each image in a year called "dates{year}".
+    """
+    cell = cell.geometry(0.1, PROJECTION)
+    images, yearly_labels = get_data_for_cell(cell, first_year, last_year)
+
+    first_image = ee.ImageCollection(images.get(images.keys().get(0))).first()
+    dem = msslib.getDem(first_image)
+    dem = dem.divide(3000)  # only ~70 points in Canada > 3000m
+    dem = dem.reproject(PROJECTION)
+    dem = convert_image_to_array(dem, cell, patch_size)
+    coords = cell.centroid(1).coordinates()
+
+    output = ee.Feature(None, {
+        'dem': dem,
+        'lat': coords.get(1),
+        'long': coords.get(0),
+        'height': patch_size,
+        'width': patch_size,
+        'bands': first_image.bandNames(),
+    })
+
+    # helper function to rename keys
+    def _prepend(string, year):
+        return ee.String(string).cat(ee.String(year))
+
+    # set the number of images in each year as a property in the feature
+    yearly_counts = images.values().map(lambda v: ee.ImageCollection(v).size())
+    count_keys = images.keys().map(lambda k: _prepend("num", k))
+    yearly_counts = ee.Dictionary.fromLists(count_keys, yearly_counts)
+    output = output.set(yearly_counts)
+
+    # set the image sequence array (N, H, W, C) for each year as a property
+    yearly_arrays = images.values().map(
+        lambda v: convert_collection_to_array(v, cell, patch_size)
+    )
+    array_keys = images.keys().map(lambda k: _prepend("array", k))
+    yearly_arrays = ee.Dictionary.fromLists(array_keys, yearly_arrays)
+    output = output.set(yearly_arrays)
+
+    # set the list of dates (epoch time) of each image in each year
+    yearly_dates = images.values().map(get_dates)
+    dates_keys = images.keys().map(lambda k: _prepend("dates", k))
+    yearly_dates = ee.Dictionary.fromLists(dates_keys, yearly_dates)
+    output = output.set(yearly_dates)
+
+    # set the annual/end of year label for each year as a property
+    label_keys = yearly_labels.keys().map(lambda k: _prepend("label", k))
+    yearly_labels = ee.Dictionary.fromLists(label_keys, yearly_labels.values())
+    output = output.set(yearly_labels)
 
     return output
 
@@ -765,7 +1009,9 @@ def sample_points(cell):
         yearRange=[year, year],
         doyRange=DOY_RANGE,
         maxCloudCover=100
-    ).map(msslib.calcToa).map(add_label).map(lambda im: im.clip(cell))
+    ).map(msslib.calcToa)
+
+    col = col.map(add_label).map(lambda im: im.clip(cell))
 
     samples = col.map(sample_image).flatten()
     samples = samples.map(
