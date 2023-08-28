@@ -333,7 +333,7 @@ def build_land_covering_grid(aoi, chip_size, overlap_size=0):
             landcover.sample(
                 x.geometry(),
                 scale=60,
-                numPixels=100,
+                numPixels=2500,
                 dropNulls=False
             ).aggregate_array("landcover").size(),
             "ecozone",
@@ -341,19 +341,15 @@ def build_land_covering_grid(aoi, chip_size, overlap_size=0):
         )
     )
 
-    return grid.filter(ee.Filter.gte("landcover", 30))
+    return grid.filter(ee.Filter.gte("landcover", 1000))
 
 
-def build_disturbance_grid(grid, year, fire_cutoff=100, harvest_cutoff=10):
-    """ Filters grid to only include cells that contain disturbances.
+def add_disturbance_counts(grid, year):
+    """ Estimates total harvest/fire in each cell of grid during year.
 
     Args:
         grid: ee.FeatureCollection originating from build_grid()
         year: int, the year to get disturbances from
-        fire_cutoff: int, how many pixels sampled from a cell must contain fire
-            for the cell to be included in the output.
-        harvest_cutoff: int, how many pixels samples from a cell must contain
-            harvest for the cell to be included in the output.
 
     Returns:
         ee.FeatureCollection, the input grid after filtering out cells with
@@ -385,10 +381,7 @@ def build_disturbance_grid(grid, year, fire_cutoff=100, harvest_cutoff=10):
         )
     )
 
-    return grid.filter(ee.Filter.Or(
-        ee.Filter.gte("harvest", harvest_cutoff),
-        ee.Filter.gte("fire", fire_cutoff)
-    ))
+    return grid
 
 
 def get_disturbed_grid_cells(grid, year):
