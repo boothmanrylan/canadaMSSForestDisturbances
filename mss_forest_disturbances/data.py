@@ -543,7 +543,7 @@ def sample_cells(
     splits = [trainp, testp, valp]
     fire_sets = train_test_val_split(fire_set, *splits)
     harvest_sets = train_test_val_split(harvest_set, *splits)
-    undisturbed_sets = train_test_val_split(undisturbed_sets, *splits)
+    undisturbed_sets = train_test_val_split(undisturbed_set, *splits)
 
     # group train/test/val splits from each disturbance type
     outputs = [
