@@ -384,190 +384,182 @@ def add_disturbance_counts(grid, year):
     return grid
 
 
-def get_disturbed_grid_cells(grid, year):
-    """ Returns the subset of cells in grid that overlap a disturbance in year
+def _get_top_property(grid, prop, count):
+    """ Return count size subset of grid after sorting (descending) by prop.
+
+    Helper function for get_top_fire and get_top_harvest
 
     Args:
-        grid: FeatureCollection e.g. originating from build_grid()
-        year: int the year to get disturbed regions for
+        grid: ee.FeatureCollection originating from add_disturbance_counts
+        prop: string, name of property to sort by
+        count: integer, size of subset to return
 
     Returns:
-        2-tuple of ee.FeatureCollections (disturbed cells, undisturbed cells)
+        ee.FeatureCollection
     """
-    grid = grid.map(lambda x: x.set('year', year))
-
-    disturbed_regions = get_disturbed_regions(year).selfMask()
-    disturbed_vectors = disturbed_regions.reduceToVectors(
-        geometry=grid.geometry(),
-        scale=1000
+    output_grid = grid.limit(count, prop, False)
+    output_grid = output_grid.map(
+        lambda elem: elem.set("disturbance_type", prop)
     )
-    large_disturbances = disturbed_vectors.filter(ee.Filter.gte('count', 10))
+    return output_grid
 
-    intersect_filter = ee.Filter.intersects(
-        leftField='.geo',
-        rightField='.geo',
-        maxError=100
+
+def get_top_fire(grid, count):
+    """ Return the count cells in grid with the most fire.
+
+    Args:
+        grid: ee.FeatureCollection originating from add_disturbance_counts
+        count: integer, the number of cells to select.
+
+    Returns:
+        ee.FeatureCollection, subset of grid.
+    """
+    return _get_top_property(grid, "fire", count)
+
+
+def get_top_harvest(grid, count):
+    """" Return the count cells in grid with the most harvest.
+
+    Args:
+        grid: ee.FeatureCollection originating from add_disturbance_counts
+        count: integer, the number of cells to select.
+
+    Returns:
+        ee.FeatureCollection, subset of grid.
+    """
+    return _get_top_property(grid, "harvest", count)
+
+
+def get_random_undisturbed(grid, count):
+    """ Return a random count cells from grid that are undisturbed.
+
+    Args:
+        grid: ee.FeatureCollection originating from add_disturbance_counts
+        count: integer, the number of cells to select.
+
+    Returns:
+        ee.FeatureCollection, subset of grid.
+    """
+    grid = grid.filter(ee.Filter.And(
+        ee.Filter.eq("fire", 0),
+        ee.Filter.eq("harvest", 0)
+    ))
+    grid = grid.randomColumn("random", 42)
+    grid = grid.limit(count, "random")
+    grid = grid.map(
+        lambda elem: elem.set("disturbance_type", "undisturbed")
     )
-
-    join = ee.Join.simple()
-    invert_join = ee.Join.inverted()
-
-    disturbed = join.apply(grid, large_disturbances, intersect_filter)
-    undisturbed = invert_join.apply(grid, large_disturbances, intersect_filter)
-
-    return disturbed, undisturbed
+    return grid
 
 
-def sample_grid_cells(grid, n, percent_disturbed, year):
-    """ Samples n cells from grid.
+def train_test_val_split(grid, trainp, testp, valp):
+    """ Randomly splits grid into 3 groups.
 
-    Attempts to have as close as possible to percent_disturbed of the sample to
-    overlap with disturbances from year.
+    trianp, testp, and valp must sum to 1.0
 
     Args:
-        grid: ee.FeatureCollection e.g. originating form build_grid()
-        n: int, the number of cells to sample
-        percent_disturbed: float, the percentage of cells sampled that should
-            overlap with a disturbance
-        year: int, the year to base overlap with disturbances on
+        grid: ee.FeatureCollection
+        trainp: float between 0 and 1, % of grid to put in first group
+        testp: float between 0 and 1, % of grid to put in second group
+        valp: float between 0 and 1, % of grid to put in thrid group
 
     Returns:
-        2-tuple of ee.FeatureCollection, (disturbed sample, undisturbed sample)
+        List of three ee.FeatureCollections
     """
-    disturbed_cells, undisturbed_cells = get_disturbed_grid_cells(grid, year)
+    assert trainp + testp + valp == 1.0
+    train_count = grid.size().multiply(trainp).int()
+    test_count = grid.size().multiply(testp).int()
+    val_count = grid.size().multiply(valp).int()
 
-    n_disturbed = disturbed_cells.size().min(n * percent_disturbed)
-    n_undisturbed = ee.Number(n).subtract(n_disturbed)
+    grid = grid.randomColumn("train_test_val", 111).sort("train_test_val")
 
-    disturbed_cells = disturbed_cells.randomColumn('rand', year)
-    disturbed_cells = disturbed_cells.limit(n_disturbed, 'rand')
-
-    undisturbed_cells = undisturbed_cells.randomColumn('rand', year)
-    undisturbed_cells = undisturbed_cells.limit(n_undisturbed, 'rand')
-
-    return disturbed_cells, undisturbed_cells
-
-
-def train_test_val_split(grid, n, ptrain, ptest, pval):
-    """ Samples cells from grid to make train/test/validation splits.
-
-    Samples n cells from the grid.
-
-    Args:
-        grid: ee.FeatureCollection, e.g. originating from build_grid()
-        n: int, the total number of cells to sample
-        ptrain: float, percentage of samples to allocate to the train split
-        ptest: float, percentage of samples to allocate to the test split
-        pval: float, percentage of samples to allocate to the val split
-
-    Returns:
-        3-tuple of ee.FeatureCollections (train, test, validation)
-    """
-    grid = grid.randomColumn('rand', 42)
-    grid = grid.sort('rand')
-
-    n = ee.Number(n)
-    train_count = n.multiply(ptrain).ceil()
-    test_count = n.multiply(ptest).ceil()
-    val_count = n.multiply(pval).ceil()
-
-    train = ee.FeatureCollection(
+    train_grid = ee.FeatureCollection(
         grid.toList(train_count, 0)
     )
-    test = ee.FeatureCollection(
+    test_grid = ee.FeatureCollection(
         grid.toList(test_count, train_count)
     )
-    val = ee.FeatureCollection(
+    val_grid = ee.FeatureCollection(
         grid.toList(val_count, train_count.add(test_count))
     )
-    return train, test, val
+    return train_grid, test_grid, val_grid
 
 
-def split_grid(grid, ptrain, ptest, pval):
-    fire_cells = grid.filter(ee.Filter.gt("fire", 0))
-    harvest_cells = grid.filter(ee.Filter.gt("harvest", 0))
+def sample_cells(
+    grid,
+    fire_count,
+    harvest_count,
+    undisturbed_count,
+    trainp,
+    testp,
+    valp
+):
+    """ Splits grid by disturbance type and then randomly into train/test/val.
 
-    mean_fire = fire_cells.aggregate_mean("fire")
-    mean_harvest = harvest_cells.aggregate_mean("harvest")
+    Args:
+        grid: ee.FeatureCollection originating from add_disturbance_counts
+        fire_count: integer, how many of the most fire dominated cells to select
+        harvest_count, integer, how many the most harvest dominated cells to
+            select
+        undisturbed_count, integer, how many undisturbed cells to select at
+            random
+        trainp: float, percentage of selected cells to allocate to the train
+            group
+        testp: float, percentage of selected cells to allocate to the test
+            group
+        valp: float, percentage of seleted cells to allocate to the val group
 
-    large_fires = fire_cells.filter(ee.Filter.gte("fire", mean_fire))
-    small_fires = fire_cells.filter(ee.Filter.lt("fire", mean_fire))
-
-    large_harvest = harvest_cells.filter(
-        ee.Filter.gte("harvest", mean_harvest)
-    )
-    small_harvest = harvest_cells.filter(
-        ee.Filter.lt("harvest", mean_harvest)
-    )
-
-    no_disturbances = grid.filter(ee.Filter.And(
-        ee.Filter.eq("fire", 0),
-        ee.Filter.eq("harvest", 0),
-    ))
-
-    num_large_fires = large_fires.size()
-    num_small_fires = small_fires.size()
-    num_large_harvest = large_harvest.size()
-    num_small_harvest = small_harvest.size()
-    num_no_disturbances = no_disturbances.size()
-
-    smallest_count = ee.List([
-        num_large_fires, num_small_fires, num_large_harvest,
-        num_small_harvest, num_no_disturbances
-    ]).reduce(ee.Reducer.min())
-
-
-    train_lf, test_lf, val_lf = train_test_val_split(
-        large_fires,
-        smallest_count,
-        ptrain,
-        ptest,
-        pval
+    Returns:
+        List of three ee.FeatureCollections
+    """
+    # oversample then limit later to account for removal of duplicates
+    oversample = 1.5
+    fire_set = get_top_fire(grid, int(oversample * fire_count))
+    harvest_set = get_top_harvest(grid, int(oversample * harvest_count))
+    undisturbed_set = get_random_undisturbed(
+        grid, int(oversample * undisturbed_count)
     )
 
-    train_sf, test_sf, val_sf = train_test_val_split(
-        small_fires,
-        smallest_count,
-        ptrain,
-        ptest,
-        pval
+    # merge sets to drop duplicates then split by dominant disturbance type and
+    # limit the number in each set again
+    grouped_set = ee.FeatureCollection(
+        [fire_set, harvest_set, undisturbed_set]
+    ).flatten().distinct('id')
+
+    fire_set = grouped_set.filter(ee.Filter.eq("disturbance_type", "fire"))
+    fire_set = fire_set.limit(fire_count, "fire", False)
+
+    harvest_set = grouped_set.filter(
+        ee.Filter.eq("disturbance_type", "harvest")
     )
+    harvest_set = harvest_set.limit(harvest_count, "harvest", False)
 
-    train_lh, test_lh, val_lh = train_test_val_split(
-        large_harvest,
-        smallest_count,
-        ptrain,
-        ptest,
-        pval
+    undisturbed_set = grouped_set.filter(
+        ee.Filter.eq("disturbance_type", "undisturbed")
     )
+    undisturbed_set = undisturbed_set.limit(undisturbed_count)
 
-    train_sh, test_sh, val_sh = train_test_val_split(
-        small_harvest,
-        smallest_count,
-        ptrain,
-        ptest,
-        pval
-    )
+    # apply train/test/val split to each disturbance type group individually
+    splits = [trainp, testp, valp]
+    fire_sets = train_test_val_split(fire_set, *splits)
+    harvest_sets = train_test_val_split(harvest_set, *splits)
+    undisturbed_sets = train_test_val_split(undisturbed_sets, *splits)
 
-    train_no, test_no, val_no = train_test_val_split(
-        no_disturbances,
-        smallest_count,
-        ptrain,
-        ptest,
-        pval
-    )
+    # group train/test/val splits from each disturbance type
+    outputs = [
+        ee.FeatureCollection([
+            fire_sets[x], harvest_sets[x], undisturbed_sets[x]
+        ]).flatten()
+        for x in [0, 1, 2]
+    ]
 
-    train = ee.FeatureCollection([
-        train_lf, train_sf, train_lh, train_sh, train_no
-    ]).flatten().sort("rand")
-    test = ee.FeatureCollection([
-        test_lf, test_sf, test_lh, test_sh, test_no
-    ]).flatten().sort("rand")
-    val = ee.FeatureCollection([
-        val_lf, val_sf, val_lh, val_sh, val_no
-    ]).flatten().sort("rand")
+    # shuffle each group so that disturbance types are intermingled
+    outputs = [
+        x.randomColumn("shuffle", 1001).sort("shuffle")
+        for x in outputs
+    ]
 
-    return train, test, val
+    return outputs
 
 
 def bitwise_extract(image, from_bit, to_bit):
