@@ -20,6 +20,7 @@ landcover: ee.ImageCollection('projects/sat-io/open-datasets/CA_FOREST_LC_VLCE2'
 forest fire: ee.Image('users/boothmanrylan/NTEMSCanada/forest_fire_1985-2020')
 harvest: ee.Image('users/boothmanrylan/NTEMSCanada/harvest_1985-2020')
 """
+import os
 
 import ee
 from msslib import msslib
@@ -29,6 +30,8 @@ FIRE = ee.Image('users/boothmanrylan/NTEMSCanada/forest_fire_1985-2020')
 HARVEST = ee.Image('users/boothmanrylan/NTEMSCanada/harvest_1985-2020')
 ECOZONES = ee.FeatureCollection('users/boothmanrylan/forest_dominated_ecozones')
 PROJECTION = LANDCOVER.first().projection().atScale(60)
+
+ALL_ECOZONE_IDS = ECOZONES.aggregate_array("ECOZONE_ID").distinct()
 
 LANDCOVER_CLASSES = {
     0: "Unclassified", 20: "Water", 31: "Snow/Ice", 32: "Rock/Rubble",
@@ -54,8 +57,9 @@ REMAPPED_LANDCOVER_CLASSES = {
 }
 
 CLASSES = {
-    0: "None", 1: "Non-forest", 2: "Forest", 3: "Water",
-    4: "Burn", 5: "Harvest", 6: "Cloud", 7: "Cloud Shadow"
+    0: "None", 1: "NonForest", 2: "Forest", 3: "Water",
+    4: "PreviousFire", 5: "Fire", 6: "PreviousHarvest", 7: "Harvest",
+    8: "Cloud", 9: "CloudShadow"
 }
 
 CLASS_PALETTE = [
@@ -253,7 +257,7 @@ def get_disturbance_map(year=1985):
     harvest = get_harvest_map(year).selfMask().add(3)
     harvest = previous_harvest.blend(harvest)
 
-    return fire.blend(harvest)
+    return harvest.blend(fire)
 
 
 def get_disturbed_regions(year=1985):
@@ -277,9 +281,8 @@ def get_disturbed_regions(year=1985):
 def build_grid(aoi, chip_size, overlap_size=0):
     """ Creates a tiled grid that covers aoi.
 
-    Each grid cell will be a square that ischip_size pixels wide in the given
-    projection at the given scale and overlap with its neighbours by
-    overlap_size pixels.
+    Each grid cell will be a square that is chip_size pixels wide in the
+    default projection and overlaps with its neighbours by overlap_size pixels.
 
     Args:
         aoi: ee.Geometry to create a grid for
@@ -298,7 +301,7 @@ def build_grid(aoi, chip_size, overlap_size=0):
         )
 
     scale = PROJECTION.nominalScale()
-    patch = scale.multiply(chip_size - overlap_size)
+    patch = scale.multiply(chip_size)
     overlap = scale.multiply(overlap_size)
 
     grid = aoi.coveringGrid(PROJECTION, patch)
@@ -339,6 +342,53 @@ def build_land_covering_grid(aoi, chip_size, overlap_size=0):
     )
 
     return grid.filter(ee.Filter.gte("landcover", 30))
+
+
+def build_disturbance_grid(grid, year, fire_cutoff=100, harvest_cutoff=10):
+    """ Filters grid to only include cells that contain disturbances.
+
+    Args:
+        grid: ee.FeatureCollection originating from build_grid()
+        year: int, the year to get disturbances from
+        fire_cutoff: int, how many pixels sampled from a cell must contain fire
+            for the cell to be included in the output.
+        harvest_cutoff: int, how many pixels samples from a cell must contain
+            harvest for the cell to be included in the output.
+
+    Returns:
+        ee.FeatureCollection, the input grid after filtering out cells with
+        no/few disturbances.
+        Features will have the added properties "fire" and
+        "harvest" containing the sample count of pixels with fire or harvest in
+        them respectively, "year" the year the disturbance counts were based
+        off of and "ecozone", the ECOZONE_ID the cell overlaps with.
+    """
+    fire = get_fire_map(year).selfMask().rename("fire")
+    harvest = get_harvest_map(year).selfMask().rename("harvest")
+    grid = grid.map(
+        lambda x: x.set(
+            "harvest", harvest.sample(
+                x.geometry(),
+                scale=60,
+                numPixels=2500,
+                dropNulls=False,
+            ).aggregate_array("harvest").size(),
+            "fire", fire.sample(
+                x.geometry(),
+                scale=60,
+                numPixels=2500,
+                dropNulls=False,
+            ).aggregate_array("fire").size(),
+            "ecozone",
+            ECOZONES.filterBounds(x.geometry()).first().get('ECOZONE_ID'),
+            "year", year
+        )
+    )
+
+    return grid.filter(ee.Filter.Or(
+        ee.Filter.gte("harvest", harvest_cutoff),
+        ee.Filter.gte("fire", fire_cutoff)
+    ))
 
 
 def get_disturbed_grid_cells(grid, year):
@@ -440,6 +490,92 @@ def train_test_val_split(grid, n, ptrain, ptest, pval):
     return train, test, val
 
 
+def split_grid(grid, ptrain, ptest, pval):
+    fire_cells = grid.filter(ee.Filter.gt("fire", 0))
+    harvest_cells = grid.filter(ee.Filter.gt("harvest", 0))
+
+    mean_fire = fire_cells.aggregate_mean("fire")
+    mean_harvest = harvest_cells.aggregate_mean("harvest")
+
+    large_fires = fire_cells.filter(ee.Filter.gte("fire", mean_fire))
+    small_fires = fire_cells.filter(ee.Filter.lt("fire", mean_fire))
+
+    large_harvest = harvest_cells.filter(
+        ee.Filter.gte("harvest", mean_harvest)
+    )
+    small_harvest = harvest_cells.filter(
+        ee.Filter.lt("harvest", mean_harvest)
+    )
+
+    no_disturbances = grid.filter(ee.Filter.And(
+        ee.Filter.eq("fire", 0),
+        ee.Filter.eq("harvest", 0),
+    ))
+
+    num_large_fires = large_fires.size()
+    num_small_fires = small_fires.size()
+    num_large_harvest = large_harvest.size()
+    num_small_harvest = small_harvest.size()
+    num_no_disturbances = no_disturbances.size()
+
+    smallest_count = ee.List([
+        num_large_fires, num_small_fires, num_large_harvest,
+        num_small_harvest, num_no_disturbances
+    ]).reduce(ee.Reducer.min())
+
+
+    train_lf, test_lf, val_lf = train_test_val_split(
+        large_fires,
+        smallest_count,
+        ptrain,
+        ptest,
+        pval
+    )
+
+    train_sf, test_sf, val_sf = train_test_val_split(
+        small_fires,
+        smallest_count,
+        ptrain,
+        ptest,
+        pval
+    )
+
+    train_lh, test_lh, val_lh = train_test_val_split(
+        large_harvest,
+        smallest_count,
+        ptrain,
+        ptest,
+        pval
+    )
+
+    train_sh, test_sh, val_sh = train_test_val_split(
+        small_harvest,
+        smallest_count,
+        ptrain,
+        ptest,
+        pval
+    )
+
+    train_no, test_no, val_no = train_test_val_split(
+        no_disturbances,
+        smallest_count,
+        ptrain,
+        ptest,
+        pval
+    )
+
+    train = ee.FeatureCollection([
+        train_lf, train_sf, train_lh, train_sh, train_no
+    ]).flatten().sort("rand")
+    test = ee.FeatureCollection([
+        test_lf, test_sf, test_lh, test_sh, test_no
+    ]).flatten().sort("rand")
+    val = ee.FeatureCollection([
+        val_lf, val_sf, val_lh, val_sh, val_no
+    ]).flatten().sort("rand")
+
+    return train, test, val
+
 
 def bitwise_extract(image, from_bit, to_bit):
     """ Helper method for extracting QA bit masks.
@@ -496,7 +632,7 @@ def mss_clear_mask(image):
     return image.updateMask(mask)
 
 
-def add_mss_clear_mask(image):
+def add_qa_mask(image):
     """ Adds the QA_PIXEL mask as a band to the input image.
 
     Args:
@@ -522,6 +658,8 @@ def process_tm(image):
     Returns:
         ee.Image
     """
+    image = ee.Image(image)
+
     # apply scaling factors
     optical = image.select('SR_B.').multiply(0.0000275).add(-0.2)
     thermal = image.select('ST_B6').multiply(0.00341802).add(149.0)
@@ -532,31 +670,7 @@ def process_tm(image):
     return tm_clear_mask(image.addBands(nbr))
 
 
-def get_disturbance_masks(image, fire_stds=2, harvest_stds=1, mss_adjust=-1):
-    """ Returns annual disturbance masks after thresholding the image.
-
-    The threshold is based on the NBR of the coincident TM image if one exists,
-    otherwise the threshold is based on the TCA of the given image.
-
-    Args:
-        im: ee.Image originating from msslib.getCol
-        fire_stds: int, the number of standard deviations below the
-            mean NBR/TCA a pixel inside of regions labeled as fire by the
-            Canadian Forest Service needs to be to be labeled as fire.
-            Necessary to do this check because the image may have been
-            acquired before the disturbance occurred.
-        harvest_stds: int, the number of standard deviations below the
-            mean NBR/TCA a pixel inside of regions labeled as harvest by the
-            Canadian Forest Service needs to be to be labeled as harvest.
-            Necessary to do this check because the image may have been
-            acquired before the disturbance occurred.
-        mss_adjust: int, how far to adjust fire_stds and harvest_stds when
-            falling back to the MSS image.
-
-    Returns:
-        3tuple of ee.Images containing the fire mask, the harvest mask, and the
-        band index that the thresholding was performed on.
-    """
+def get_coincident_tm(image):
     year = image.getNumber('year')
     aoi = image.geometry()
 
@@ -568,68 +682,74 @@ def get_disturbance_masks(image, fire_stds=2, harvest_stds=1, mss_adjust=-1):
     intersection_area = col.geometry().intersection(aoi, 1000).area(1000)
     overlap_percentage = intersection_area.divide(aoi.area(1000))
 
-    # only use NBR if it covers at least 99% of the image otherwise use TCA
     use_tm = overlap_percentage.gte(0.99)
-    band_index = ee.Image(ee.Algorithms.If(
+    return ee.Algorithms.If(
         use_tm,
-        process_tm(col.mosaic()).select('NBR'),
-        mss_clear_mask(msslib.addTc(image)).select('tca')
-    )).rename('threshold')
-
-    # lower the threshold requirements if falling back to the MSS image
-    fire_stds = ee.Number(ee.Algorithms.If(
-        use_tm,
-        fire_stds,
-        max(fire_stds + mss_adjust, 0)
-    ))
-    harvest_stds = ee.Number(ee.Algorithms.If(
-        use_tm,
-        harvest_stds,
-        max(harvest_stds + mss_adjust, 0)
-    ))
-
-    # set the threshold based on the mean undisturbed band index
-    undisturbed_index = band_index.updateMask(get_treed_mask(year.subtract(1)))
-    mean_undisturbed_index = undisturbed_index.reduceRegion(
-        geometry=aoi,
-        scale=600,
-        reducer=ee.Reducer.mean()
-    ).getNumber('threshold')
-
-    # it is possible that all of aoi gets masked and the reducer returns None
-    mean_undisturbed_index = ee.Number(ee.Algorithms.If(
-        mean_undisturbed_index,
-        mean_undisturbed_index,
-        1000
-    ))
-
-    std_undisturbed_index = undisturbed_index.reduceRegion(
-        geometry=aoi,
-        scale=600,
-        reducer=ee.Reducer.stdDev()
-    ).getNumber('threshold')
-
-    # it is possible that all of aoi gets masked and the reducer returns None
-    std_undisturbed_index = ee.Number(ee.Algorithms.If(
-        std_undisturbed_index,
-        std_undisturbed_index,
-        1
-    ))
-
-    fire_threshold = mean_undisturbed_index.subtract(
-        fire_stds.multiply(std_undisturbed_index)
-    )
-    harvest_threshold = mean_undisturbed_index.subtract(
-        harvest_stds.multiply(std_undisturbed_index)
+        col.mosaic(),
+        None
     )
 
-    fire_mask = band_index.lte(fire_threshold)
-    harvest_mask = band_index.lte(harvest_threshold)
 
-    return fire_mask, harvest_mask, band_index
+def get_disturbance_mask(image, median_tca, median_nbr):
+    """ Returns annual disturbance masks after thresholding the image.
+
+    The threshold is based on the NBR of the coincident TM image if one exists,
+    otherwise the threshold is based on the TCA of the given image.
+
+    Args:
+        image: ee.Image originating from msslib.getCol().
+        median_tca: ee.Image
+        median_nbr: ee.Image
+
+    Returns:
+        ee.Image
+    """
+    coincident_tm = get_coincident_tm(image)
+
+    return ee.Image(ee.Algorithms.If(
+        coincident_tm,
+        process_tm(coincident_tm).select('NBR').lte(median_nbr),
+        mss_clear_mask(msslib.addTc(image)).select('tca').lte(median_tca)
+    ))
 
 
-def label_image(image, fire_threshold=2, harvest_threshold=1, mss_adjust=-1):
+def make_disturbance_map(year, lookback=5):
+    # TODO: what is this?
+    # get treed not-treed from the year before the target
+    # base will be 1 for no trees, 2 for trees, and 3 for water
+    base = get_basemap(year, lookback=1)
+
+    dated_prior_fire = FIRE.updateMask(FIRE.lt(year))
+    years_since_fire = dated_prior_fire.subtract(year).multiply(-1)
+
+    dated_prior_harvest = HARVEST.updateMask(HARVEST.lt(year))
+    years_since_harvest = dated_prior_harvest.subtract(year).multiply(-1)
+
+    base_offset = 3
+    harvest_offset = year.subtract(1984)
+    fire = years_since_fire.add(base_offset)
+    harvest = years_since_harvest.add(harvest_offset).add(base_offset)
+
+    return base.blend(harvest).blend(fire)
+
+
+def preprocess(image):
+    """ Applies preprocessing to MSS image to prepare for cnn.
+
+    Args:
+        image: ee.Image originating from msslib.getCol
+
+    Returns:
+        ee.Image
+    """
+    image = msslib.calcToa(image)
+    image = msslib.addTc(image)
+    image = normalize_tca(image)
+    image = msslib.addNdvi(image)
+    return image
+
+
+def label_image(image, fire_lookback=3, harvest_lookback=10):
     """Creates the target labels for a given MSS image.
 
     Pixels are labelled as forest, non-forest, burn, harvest, water, cloud,
@@ -642,25 +762,29 @@ def label_image(image, fire_threshold=2, harvest_threshold=1, mss_adjust=-1):
     rule is used: (water/forest/non-forest) < (burn/harvest) < (cloud/shadow).
 
     To handle the image potentially being acquired before a disturbance
-    occurred harvest and fire regions are thresholded based on the NBR value of
-    the coincident Thematic Mapper image if one exists, otherwise the threshold
-    is based on the TCA valu fo the given image.
+    occurred, a threshold is calculate based on the median value of a pixel
+    across the collection. The threshold is based on NBR if a coincident TM
+    image exists, otherwise it is based on the TCA of the given image.
+
+    Class Labels:
+        0: None (for masked pixels)
+        1: Non-forest
+        2: Forest
+        3: Water
+        4: Previous Fire
+        6: Fire
+        6: Previous Harvest
+        7: Harvest
+        8: Cloud
+        9: Cloud Shadow
 
     Args:
         image: an ee.Image should originate from msslib.getCol() and
             msslib.calcToa().
-        fire_threshold: int, the number of standard deviations below the
-            mean NBR/TCA a pixel inside of regions labeled as fire by the
-            Canadian Forest Service needs to be to be labeled as fire.
-            Necessary to do this check because the image may have been
-            acquired before the disturbance occurred.
-        harvest_threshold: int, the number of standard deviations below the
-            mean NBR/TCA a pixel inside of regions labeled as harvest by the
-            Canadian Forest Service needs to be to be labeled as harvest.
-            Necessary to do this check because the image may have been
-            acquired before the disturbance occurred.
-        mss_adjust: int, how far to adjust fire_stds and harvest_stds when
-            falling back to the MSS image.
+        fire_lookback: int, how many prior years to include in the previous
+            fire class.
+        harvest_lookback: int, how many prior years to include in the previous
+            harvest class.
 
     Returns:
         an ee.Image with one integer band containing the class of each pixel.
@@ -668,35 +792,65 @@ def label_image(image, fire_threshold=2, harvest_threshold=1, mss_adjust=-1):
     year = image.getNumber('year')
     aoi = image.geometry()
 
-    fire_mask, harvest_mask, _ = get_disturbance_masks(
-        image,
-        fire_threshold,
-        harvest_threshold,
-        mss_adjust
-    )
+    fire_lookback = year.subtract(fire_lookback)
+    harvest_lookback = year.subtract(harvest_lookback)
+    base = get_basemap(year, lookback=1)
+    base = base.add(1)  # to allow for 0 to equal masked pixels
 
-    base = get_basemap(year, lookback=1).add(1)
+    prior_fire = FIRE.lt(year).And(FIRE.gte(fire_lookback))
+    prior_fire = prior_fire.selfMask()
+    prior_harvest = HARVEST.lt(year).And(HARVEST.gte(harvest_lookback))
+    prior_harvest = prior_harvest.selfMask()
 
-    previous_fire = get_previous_fire_map(year).selfMask().add(3)
-    fire = get_fire_map(year).selfMask().add(4)
-    fire = previous_fire.blend(fire.updateMask(fire_mask))
+    base_offset = 3  # non-forest, forest, water
+    prior_fire = prior_fire.add(base_offset)
 
-    previous_harvest = get_previous_harvest_map(year).selfMask().add(5)
-    harvest = get_harvest_map(year).selfMask().add(6)
-    harvest = previous_harvest.blend(harvest.updateMask(harvest_mask))
+    # add an additional 2 to account for previous fire and fire
+    prior_harvest = prior_harvest.add(base_offset).add(2)
 
-    occlusion = msslib.addMsscvm(image, 20).select('msscvm').selfMask().add(7)
+    base = base.blend(prior_harvest).blend(prior_fire)
 
-    return base.blend(fire).blend(harvest).blend(occlusion).clip(aoi)
+    # get the median TCA for the image region
+    tca_median = msslib.getCol(
+        aoi=image.geometry(),
+        yearRange=[1972, 1995],
+        doyRange=DOY_RANGE,
+        maxCloudCover=20
+    ).map(preprocess).select('tca').median()
+
+    # get the median Thematic Mapper NBR for the image region
+    tm_col = TM.filterBounds(image.geometry())
+    tm_col = tm_col.filter(ee.Filter.lte('CLOUD_COVER', 20))
+    tm_col = tm_col.filter(ee.Filter.calendarRange(*DOY_RANGE, "day_of_year"))
+    nbr_median = tm_col.map(process_tm).select("NBR").median()
+
+    # compute the mask for disturbances within the current year to account for
+    # disturbances that have not yet occurred in the year at the time the image
+    # was acquired
+    disturbance_mask = get_disturbance_mask(image, tca_median, nbr_median)
+
+    fire = get_fire_map(year).updateMask(disturbance_mask).selfMask()
+    fire = fire.add(4)
+    harvest = get_harvest_map(year).updateMask(disturbance_mask).selfMask()
+    harvest = harvest.add(6)
+
+    # compute the cloud and cloud shadow regions
+    occlusion = msslib.addMsscvm(image, 20).select('msscvm').selfMask()
+    occlusion = occlusion.add(7)
+
+    label = base.blend(harvest).blend(fire).blend(occlusion)
+    return label.rename("label")
 
 
-def add_label(image, *args, **kwargs):
+def add_label(image, median_tca, median_nbr, *args, **kwargs):
     """ Helper function to add result of label_image as a band to the input.
 
     See label_image for a more complete description.
 
     Args:
         image: ee.Image
+        median_tca: ee.Image
+        median_nbr: ee.Image
         args: other arguments to pass to label_image
         kwargs: other named arguments to pass to label_image
 
@@ -705,11 +859,142 @@ def add_label(image, *args, **kwargs):
         result of calling label_image with the parameters passed to this
         function.
     """
-    label = label_image(image, *args, **kwargs).rename("label")
+    label = label_image(image, median_tca, median_nbr, *args, **kwargs)
+    label = label.rename("label")
     return image.addBands(label)
 
 
-def get_label(aoi, year):
+def get_lookback_median(image, lookback=3, max_cloud_cover=20):
+    """ Gets a median image from lookback prior years for given image.
+
+    Args:
+        image: ee.Image,
+        lookback: int, how many years to base the median on
+        max_cloud_cover: int, between 0 and 100, max cloud cover of image to
+            allow in the collection the median is calculated from.
+
+    Return:
+        ee.Image
+    """
+    year = image.date().get("year")
+    col = msslib.getCol(
+        aoi=image.geometry(),
+        yearRange=[year.subtract(lookback), year.subtract(1)],
+        doyRange=DOY_RANGE,
+        maxCloudCover=max_cloud_cover,
+    ).map(preprocess).map(mss_clear_mask)
+    return col.median().regexpRename("(.*)", "historical_$1", False)
+
+
+def prepare_image_for_export(image):
+    """ Preprocess image, adds historical band, and calculates image label.
+
+    Args:
+        image: ee.Image originating from msslib.getCol
+
+    Returns:
+        ee.Image
+    """
+    image = preprocess(image)
+    historical_bands = get_lookback_median(image)
+    label = label_image(image)
+
+    image = image.addBands(historical_bands).addBands(label)
+    types = ee.Dictionary.fromLists(
+        image.bandNames(),
+        ee.List.repeat("float", image.bandNames().size())
+    )
+    image = image.cast(types)
+    return image
+
+
+def prepare_metadata_for_export(image, cell):
+    image = ee.Image(image)
+    cell = ee.Feature(cell)
+
+    doy = image.date().getRelative("day", "year")
+    remapped_doy = doy.subtract(DOY_RANGE[0] - 1)  # shift by 1 for leap years
+
+    centroid = image.geometry().centroid(100)
+    lon = centroid.coordinates().get(0)
+    lat = centroid.coordinates().get(1)
+
+    ecozone = cell.get('ecozone')
+    remapped_ecozone = ALL_ECOZONE_IDS.indexOf(ecozone)
+
+    metadata = ee.FeatureCollection(ee.Feature(None, {
+        "doy": remapped_doy,
+        "lat": lat,
+        "lon": lon,
+        "ecozone": remapped_ecozone,
+    }))
+    return metadata
+
+
+def export_cell(cell, prefix, cell_id, export_metadata=False):
+    """ Exports all images that overlap cell
+
+    Args:
+        cell: ee.Feature,
+        prefix: string, location in cloud storage to store result
+        cell_id: int, used to distinguish files resulting from different cells
+        exportt_metadata: bool, if True, export image metadata in separate
+            TFRecord
+
+    Returns:
+        None, this method starts the export tasks
+    """
+    year = cell.getNumber("year")
+    images = msslib.getCol(
+        aoi=cell.geometry(),
+        yearRange=[year, year],
+        doyRange=DOY_RANGE,
+        maxCloudCover=100
+    ).map(prepare_image_for_export)
+
+    images_list = images.toList(images.size())
+    metadata_list = images_list.map(
+        lambda im: prepare_metadata_for_export(im, cell)
+    )
+
+    ecozone_id = cell.getNumber("ecozone").getInfo()
+
+    for i in range(images.size().getInfo()):
+        image_filename = os.path.join(
+            prefix,
+            f"ecozone_{ecozone_id}",
+            f"cell_{cell_id:03}_image_{i:03}"
+        )
+        metadata_filename = image_filename.replace("_image_", "_metadata_")
+        image_task = ee.batch.Export.image.toCloudStorage(
+            image=ee.Image(images_list.get(i)),
+            description=f"image_export_{i}",
+            bucket="mssforestdisturbances",
+            fileNamePrefix=image_filename,
+            region=cell.geometry(),
+            scale=60,
+            crs=PROJECTION.getInfo()["wkt"],
+            crsTransform=PROJECTION.getInfo()["transform"],
+            fileFormat="TFRecord",
+            formatOptions={
+                'patchDimensions': (256, 256),
+            },
+        )
+        metadata_task = ee.batch.Export.table.toCloudStorage(
+            collection=ee.FeatureCollection(metadata_list.get(i)),
+            description=f"metadata_export_{i}",
+            bucket="mssforestdisturbances",
+            fileNamePrefix=metadata_filename,
+            fileFormat="TFRecord",
+            selectors=["doy", "lat", "lon", "ecozone"],
+        )
+        image_task.start()
+
+        if export_metadata:
+            metadata_task.start()
+
+
+def get_label(year):
     """ Create target labelling for the given year and aoi.
 
     Pixels are labelled as forest, non-forest, burn, harvest, or water. Forest,
@@ -729,7 +1014,7 @@ def get_label(aoi, year):
     """
     base = get_basemap(year).add(1)
     disturbances = get_disturbance_map(year).selfMask().add(3)
-    return base.blend(disturbances).clip(aoi)
+    return base.blend(disturbances).rename("annual_label")
 
 
 def normalize_tca(image):
@@ -751,204 +1036,151 @@ def normalize_tca(image):
     return image.addBands(tca, ['tca'], True)
 
 
-def get_data_for_cell(cell, first_year=1982, last_year=1995):
-    """ Return the inputs and target labels for the given cell.
+def normalize_doy(image):
+    """ Normalizes day of year values to ~[0, 1]
 
-    Returns all images of cell between first_year and last_year (inclusive),
-    along with the labels of each individual image and the label of each year.
-
-    Args:
-        cell: ee.Geometry, the aoi to get the inputs and target labels for
-            (e.g. this function can be mapped across one of the outputs of
-            train_test_val_split)
-        first_year: int, the year to start getting images from (inclusive)
-        last_year: int, the last year to get images from (inclusive)
-
-    Returns:
-        2-tuple of dict mapping int -> ee.ImageCollection/ee.Image. In each
-        dict, the keys are the years, the values are all the images of the cell
-        during that year. The first dict contains the MSS images converted to
-        TOA with the TCA and the pixel labels added, the second dict contains
-        the "final" label for each year.
-    """
-    def get_col(year):
-        col = msslib.getCol(
-            aoi=cell,
-            yearRange=[year, year],
-            doyRange=DOY_RANGE,
-            maxCloudCover=100
-        )
-        col = col.map(msslib.calcToa).map(msslib.addTc)
-        # col = col.map(lambda im: im.clip(cell))
-        col = col.map(add_label)
-        col = col.map(add_mss_clear_mask)
-
-        bands = ['nir', 'red_edge', 'red', 'green', 'tca', 'qa_mask']
-        col = col.map(lambda im: im.select(bands))
-
-        col = col.map(normalize_tca)
-        col = col.map(lambda im: im.reproject(PROJECTION))
-        return col
-
-    years = ee.List.sequence(first_year, last_year)
-    keys = years.map(lambda x: ee.Number(x).int().format())
-    images = years.map(get_col)
-    labels = years.map(lambda y: get_label(cell, y))
-
-    images = ee.Dictionary.fromLists(keys, images)
-    labels = ee.Dictionary.fromLists(keys, labels)
-
-    return images, labels
-
-
-def convert_image_to_array(image, cell, patch_size):
-    """ Converts an image to an array with shape (H, W, C)
+    Because we only use images from ~Jul 1st to ~Sep 30th we do not need to
+    worry about Jan 1st mapping to 0 and Dec 31st mapping to 1
 
     Args:
         image: ee.Image
-        cell: ee.Geometry, passed to sampleRectangle
-        patch_size: int, the width and height of cell in pixels
 
     Returns:
-        ee.Array
+        ee.Image
     """
-    def reshape(arr):
-        arr = ee.Array(arr)
-        return arr.reshape([patch_size, patch_size, 1])
-
-    image = ee.Image(image)
-    bands = image.bandNames()
-    array = image.reproject(PROJECTION).sampleRectangle(cell, defaultValue=0)
-
-    band_arrays = bands.map(lambda x: reshape(array.get(x)))
-
-    return ee.Array.cat(band_arrays, 2)
+    doy = image.select(['doy'])
+    doy = doy.subtract(DOY_RANGE[0]).divide(DOY_RANGE[1] - DOY_RANGE[0])
+    return image.addBands(doy, ['doy'], True)
 
 
-def convert_collection_to_array(col, cell, patch_size):
-    """ Converts an imagecollection to an array with shape (N, H, W, C)
+def normalize_year(image, min_year):
+    """ Converts year values to indices starting at 0.
 
     Args:
-        col: ee.ImageCollection,
-        cell: ee.Geometry, passed to sampleRectangle
-        patch_size: int, the width and height of cell in pixels
+        image: ee.Image
+        min_year: int
 
     Returns:
-        ee.Array
+        ee.Image
     """
-    def _helper(col):
-        col = col.toList(col.size())
-        col = col.map(
-            lambda x: convert_image_to_array(x, cell, patch_size)
-        )
-        col = col.map(
-            lambda x: ee.Array(x).reshape([1, patch_size, patch_size, -1])
-        )
-        return ee.Array.cat(col, 0)
-
-    col = ee.ImageCollection(col)
-
-    return ee.Algorithms.If(
-        col.size(),
-        _helper(col),
-        ee.Array([], ee.PixelType.float())
-    )
+    year = image.select(['year'])
+    year = year.subtract(min_year)
+    return image.addBands(year, ['year'], True)
 
 
-def get_dates(col):
-    """ Returns the date of each image in col as an array.
+def add_date(im):
+    """ Returns im with additional bands containing its acquisition date.
+
+    One band with the year and one band with the day of year are added
+
+    Args:
+        im: ee.Image
+
+    Returns:
+        ee.Image
+    """
+    date = ee.Image(im).date()
+    year = ee.Image.constant(date.get("year")).rename("year")
+    doy = ee.Image.constant(date.getRelative("day", "year")).rename("doy")
+    return im.addBands(year.float()).addBands(doy.float())
+
+
+def get_dem():
+    """ Gets a global digital elevation model.
+
+    The DEM is returned in the default projection of this project.
+
+    Adapted from msslib
+
+    Args:
+        None
+
+    Returns:
+        ee.Image
+    """
+    aw3d30 = ee.Image('JAXA/ALOS/AW3D30/V2_2').select('AVE_DSM').rename('elev')
+    gmted = ee.Image('USGS/GMTED2010').rename('elev')
+    dem = ee.ImageCollection([gmted, aw3d30]).mosaic()
+    return dem.divide(3000).reproject(PROJECTION)
+
+
+def image_depth_per_year(col):
+    """ Returns an image counting the number of images in each year in col.
+
+    The output image will have N bands where there are N years of images in
+    col. The ith band of the output will contain the number of images in the
+    ith year of col at each pixel.
 
     Args:
         col: ee.ImageCollection
 
     Returns:
-        ee.Array containing the date of each image in the input in epoch time.
+        ee.Image
     """
-    def _helper(col):
-        col = col.toList(col.size())
-        col = col.map(lambda im: ee.Image(im).date().millis())
-        return ee.Array(col)
+    def calc_depth(year, col):
+        col = col.filter(ee.Filter.eq("year", year))
+        first_band = col.first().bandNames().get(0)
+        depth = col.select([first_band]).reduce(ee.Reducer.count())
+        return depth.rename("depth")
 
-    col = ee.ImageCollection(col)
-
-    return ee.Algorithms.If(
-        col.size(),
-        _helper(col),
-        ee.Array([], ee.PixelType.float())
-    )
+    years = col.aggregate_array("year").distinct()
+    output = years.map(lambda y: calc_depth(y, col))
+    return ee.ImageCollection(output).toBands()
 
 
-def prepare_export(cell, patch_size, first_year=1982, last_year=1995):
-    """ Converts data for a grid cell into a feature to export as a TFRecord.
-
-    See get_data_for_cell() for a better description of the returned data.
-
-    Args:
-        cell: ee.Geometry
-        first_year: int
-        last_year: int
-
-    Returns:
-        ee.Feature with the following properties: a digital elevation model
-        called "dem", the latitude and longitude of the centroid of the cell
-        called "lat", and "long" respectively, the height and width of a cell
-        in pixels called "height" and "width" respectively, and a list of the
-        bands in each image called "bands". And then for each year between
-        first_year and last_year (inclusive) a property containing the number
-        of images in that year called "num{year}", all of the images in that
-        year as an array with shape (N, H, W, C) called "array{year}", an array
-        of the end of year label for a year called "label{year}", and a list of
-        the dates of each image in a year called "dates{year}".
-    """
-    cell = cell.geometry(0.1, PROJECTION)
-    images, yearly_labels = get_data_for_cell(cell, first_year, last_year)
-
-    first_image = ee.ImageCollection(images.get(images.keys().get(0))).first()
-    dem = msslib.getDem(first_image)
-    dem = dem.divide(3000)  # only ~70 points in Canada > 3000m
-    dem = dem.reproject(PROJECTION)
-    dem = convert_image_to_array(dem, cell, patch_size)
-    coords = cell.centroid(1).coordinates()
-
-    output = ee.Feature(None, {
-        'dem': dem,
-        'lat': coords.get(1),
-        'long': coords.get(0),
-        'height': patch_size,
-        'width': patch_size,
-        'bands': first_image.bandNames(),
-    })
-
-    # helper function to rename keys
-    def _prepend(string, year):
-        return ee.String(string).cat(ee.String(year))
-
-    # set the number of images in each year as a property in the feature
-    yearly_counts = images.values().map(lambda v: ee.ImageCollection(v).size())
-    count_keys = images.keys().map(lambda k: _prepend("num", k))
-    yearly_counts = ee.Dictionary.fromLists(count_keys, yearly_counts)
-    output = output.set(yearly_counts)
-
-    # set the image sequence array (N, H, W, C) for each year as a property
-    yearly_arrays = images.values().map(
-        lambda v: convert_collection_to_array(v, cell, patch_size)
-    )
-    array_keys = images.keys().map(lambda k: _prepend("array", k))
-    yearly_arrays = ee.Dictionary.fromLists(array_keys, yearly_arrays)
-    output = output.set(yearly_arrays)
-
-    # set the list of dates (epoch time) of each image in each year
-    yearly_dates = images.values().map(get_dates)
-    dates_keys = images.keys().map(lambda k: _prepend("dates", k))
-    yearly_dates = ee.Dictionary.fromLists(dates_keys, yearly_dates)
-    output = output.set(yearly_dates)
-
-    # set the annual/end of year label for each year as a property
-    label_keys = yearly_labels.keys().map(lambda k: _prepend("label", k))
-    yearly_labels = ee.Dictionary.fromLists(label_keys, yearly_labels.values())
-    output = output.set(yearly_labels)
-
-    return output
+# def prepare_export(aoi, bands, first_year=1985, last_year=1995):
+#     """ Prepares images bounding aoi for export to a TFRecord.
+#
+#     Args:
+#         aoi: ee.Geometry, region to export images from
+#         bands: List of str, selectors for bands to output
+#         patch_size: int, size of TFRecord patch
+#         first_year: int, start of year range
+#         last_year: int, end of year range
+#
+#     Returns:
+#         ee.Image
+#     """
+#     col = msslib.getCol(
+#         aoi=aoi,
+#         yearRange=[first_year, last_year],
+#         doyRange=DOY_RANGE,
+#         maxCloudCover=100,
+#     )
+#     col = col.map(msslib.calcToa)
+#     col = col.map(msslib.addTc)
+#
+#     tca_col = col.map(mss_clear_mask)
+#     median_tca = tca_col.reduce(ee.Reducer.median()).select('tca_median')
+#
+#     tm_col = TM.filterBounds(aoi).map(process_tm)
+#     median_nbr = tm_col.reduce(ee.Reducer.median()).select('NBR_median')
+#
+#     col = col.map(lambda im: add_label(im, median_tca, median_nbr))
+#
+#     col = col.map(add_qa_mask)
+#     col = col.map(lambda im: im.unmask(0, sameFootprint=False))
+#     col = col.map(normalize_tca)
+#     col = col.map(add_date)
+#     col = col.map(normalize_doy)
+#     col = col.map(lambda im: normalize_year(im, first_year))
+#     col = col.map(lambda im: im.float())
+#
+#     output = col.toArrayPerBand()
+#
+#     years = col.aggregate_array("year").distinct()
+#     labels = ee.ImageCollection(years.map(get_label))
+#     labels = labels.toArrayPerBand().float()
+#
+#     output = output.addBands(labels)
+#
+#     depth = col.size().getInfo()
+#     depths = {b: depth for b in bands}
+#     depths["annual_label"] = years.length().getInfo()
+#
+#     output = output.select(bands + ["annual_label"])
+#
+#     return output, depths
 
 
 def sample_image(image, points_per_class=2, num_classes=9):
