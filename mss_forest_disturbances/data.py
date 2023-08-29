@@ -900,17 +900,11 @@ def prepare_metadata_for_export(image, cell):
     doy = image.date().getRelative("day", "year")
     remapped_doy = doy.subtract(DOY_RANGE[0] - 1)  # shift by 1 for leap years
 
-    centroid = image.geometry().centroid(100)
-    lon = centroid.coordinates().get(0)
-    lat = centroid.coordinates().get(1)
-
     ecozone = cell.get('ecozone')
     remapped_ecozone = ALL_ECOZONE_IDS.indexOf(ecozone)
 
     metadata = {
         "doy": remapped_doy,
-        "lat": lat,
-        "lon": lon,
         "ecozone": remapped_ecozone,
     }
     return metadata
