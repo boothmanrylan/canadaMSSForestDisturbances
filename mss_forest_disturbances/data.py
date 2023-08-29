@@ -907,12 +907,12 @@ def prepare_metadata_for_export(image, cell):
     ecozone = cell.get('ecozone')
     remapped_ecozone = ALL_ECOZONE_IDS.indexOf(ecozone)
 
-    metadata = ee.FeatureCollection(ee.Feature(None, {
+    metadata = {
         "doy": remapped_doy,
         "lat": lat,
         "lon": lon,
         "ecozone": remapped_ecozone,
-    }))
+    }
     return metadata
 
 
