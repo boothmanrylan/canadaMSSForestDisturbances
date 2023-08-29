@@ -884,13 +884,13 @@ def prepare_image_for_export(image):
     historical_bands = get_lookback_median(image)
     label = label_image(image)
 
-    image = image.addBands(historical_bands).addBands(label)
+    image = image.addBands(historical_bands)
     types = ee.Dictionary.fromLists(
         image.bandNames(),
         ee.List.repeat("float", image.bandNames().size())
     )
     image = image.cast(types)
-    return image
+    return image, label
 
 
 def prepare_metadata_for_export(image, cell):
