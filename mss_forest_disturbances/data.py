@@ -538,7 +538,7 @@ def sample_cells(
     grid = grid.filter(ee.Filter.gt("num_overlapping_images", 0))
 
     # oversample then limit later to account for removal of duplicates
-    oversample = 1.5
+    oversample = 2
     fire_set = get_top_fire(grid, int(oversample * fire_count))
     harvest_set = get_top_harvest(grid, int(oversample * harvest_count))
     undisturbed_set = get_random_undisturbed(
