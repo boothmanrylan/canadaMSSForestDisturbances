@@ -497,7 +497,7 @@ def set_image_overlap(cell):
     year = cell.getNumber("year")
 
     images = msslib.getCol(
-        aoi=cell.centroid(1),
+        aoi=cell.geometry().centroid(1),
         yearRange=[year, year],
         doyRange=DOY_RANGE,
         maxCloudCover=100
