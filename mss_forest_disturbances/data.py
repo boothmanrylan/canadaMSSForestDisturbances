@@ -485,6 +485,27 @@ def train_test_val_split(grid, trainp, testp, valp):
     return train_grid, test_grid, val_grid
 
 
+def set_image_overlap(cell):
+    """ Helper function for sample_cells to drop cells with no images.
+
+    Args:
+        cell: ee.Feature originating from add_disturbance_counts
+
+    Returns:
+        ee.Feature, the input feature with new property num_overlapping_images
+    """
+    year = cell.getNumber("year")
+
+    images = msslib.getCol(
+        aoi=cell.centroid(1),
+        yearRange=[year, year],
+        doyRange=DOY_RANGE,
+        maxCloudCover=100
+    )
+
+    return cell.set("num_overlapping_images", images.size())
+
+
 def sample_cells(
     grid,
     fire_count,
@@ -512,6 +533,10 @@ def sample_cells(
     Returns:
         List of three ee.FeatureCollections
     """
+    # drop cells with no images overlapping the centroid in the target year
+    grid = grid.map(set_image_overlap)
+    grid = grid.filter(ee.Filter.gt("num_overlapping_images", 0))
+
     # oversample then limit later to account for removal of duplicates
     oversample = 1.5
     fire_set = get_top_fire(grid, int(oversample * fire_count))
