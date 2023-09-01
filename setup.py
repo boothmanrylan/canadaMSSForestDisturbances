@@ -11,5 +11,6 @@ setup(
         "apache-beam[gcp]==2.46.0",
         "earthengine-api==0.1.358",
         "tensorflow==2.12.0",
+        "msslib"
     ],
 )
