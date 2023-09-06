@@ -191,7 +191,7 @@ def run_pipeline(input_asset, output_prefix, max_requests, beam_args):
         save_main_session=True,
         setup_file='./setup.py',
         max_num_workers=max_requests,
-        direct_num_works=max(max_request, 20),
+        direct_num_works=max(max_requests, 20),
         disk_size_gb=50,
     )
 
@@ -220,7 +220,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '--max-request',
+        '--max-requests',
         default=20,
         type=int,
         help='Number of concurrent requests to Earth Engine',
