@@ -98,8 +98,8 @@ def get_image_ids(row, asset):
     images = _get_images_from_feature(feature)
 
     image_ids = images.aggregate_array('system:id').getInfo()
-    feture_ids = itertools.repeat(row['id'])
-    paths = itertools.repeat(asset_path)
+    feature_ids = itertools.repeat(row['id'])
+    paths = itertools.repeat(asset)
 
     return zip(image_ids, feature_ids, paths)
 
