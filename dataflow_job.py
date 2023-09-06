@@ -231,7 +231,7 @@ if __name__ == '__main__':
         type=str,
         help='Path to Earth Engine FeatureCollection containing export patches'
     )
-    parse.add_argument(
+    parser.add_argument(
         '--output-prefix',
         required=True,
         type=str,
