@@ -26,7 +26,7 @@ LOCATION = 'us-central1'
 ASSET_PATH = 'projects/api-project-269347469410/assets/rylan-mssforestdisturbances/'
 
 _BANDS = ['nir', 'red_edge', 'red', 'green', 'tca', 'ndvi']
-_HISTORICAL_BANDS = ['historical_' + x for x in bands]
+_HISTORICAL_BANDS = ['historical_' + x for x in _BANDS]
 BANDS = _BANDS + _HISTORICAL_BANDS
 
 PATCH_SIZE = 512
