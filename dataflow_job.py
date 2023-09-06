@@ -25,7 +25,7 @@ def ee_init():
     ee.Initialize(
         credentials.with_quota_project(None),
         project=project,
-        opt_url=HIGH_VOLUM_ENDPOINT,
+        opt_url='https://earthengine-highvolume.googleapis.com',
     )
 
 
@@ -39,7 +39,6 @@ from mss_forest_disturbances import data
 PROJECT = 'api-project-269347469410'
 BUCKET = 'gs://rylan-mssforestdisturbances/'
 LOCATION = 'us-central1'
-HIGH_VOLUME_ENDPOINT = 'https://earthengine-highvolume.googleapis.com'
 ASSET_PATH = 'projects/api-project-269347469410/assets/rylan-mssforestdisturbances/'
 PROJECTION = ee.Projection('EPSG:4269').atScale(60)
 ERROR_MARGIN = ee.ErrorMargin(1, 'projected')
