@@ -65,7 +65,7 @@ REQUEST = {
             'shearY': 0,
             'scaleY': scale_y,
         },
-        'crsCode': prj['crs'],
+        'crsCode': proj['crs'],
     }
 }
 
