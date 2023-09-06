@@ -150,7 +150,7 @@ def get_image_label_metadata(image_id, feature_id, asset):
     np_image = np.load(io.BytesIO(ee.data.computePixels(image_request)))
 
     label_request = dict(request)
-    label_request['exporession'] = label.unmask(0, sameFootprint=False)
+    label_request['expression'] = label.unmask(0, sameFootprint=False)
     np_label = np.load(io.BytesIO(ee.data.computePixels(label_request)))
 
     return np_image, np_label, metadata
