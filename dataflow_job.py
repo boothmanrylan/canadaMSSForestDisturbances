@@ -15,6 +15,23 @@ import numpy as np
 
 import ee
 
+import geemap
+from msslib import msslib
+from mss_forest_disturbances import data
+
+
+PROJECT = 'api-project-269347469410'
+BUCKET = 'gs://rylan-mssforestdisturbances/'
+LOCATION = 'us-central1'
+ASSET_PATH = 'projects/api-project-269347469410/assets/rylan-mssforestdisturbances/'
+
+_BANDS = ['nir', 'red_edge', 'red', 'green', 'tca', 'ndvi']
+_HISTORICAL_BANDS = ['historical_' + x for x in bands]
+BANDS = _BANDS + _HISTORICAL_BANDS
+
+PATCH_SIZE = 512
+
+
 def ee_init():
     credentials, project = google.auth.default(
         scopes=[
@@ -29,54 +46,54 @@ def ee_init():
     )
 
 
-ee_init()
+def _get_scales():
+    proj = data.get_default_projection().getInfo()
 
-import geemap
-from msslib import msslib
-from mss_forest_disturbances import data
+    scale_x = proj['transform'][0]
+    scale_y = -proj['transform'][4]
+
+    return scale_x, scale_y
 
 
-PROJECT = 'api-project-269347469410'
-BUCKET = 'gs://rylan-mssforestdisturbances/'
-LOCATION = 'us-central1'
-ASSET_PATH = 'projects/api-project-269347469410/assets/rylan-mssforestdisturbances/'
-PROJECTION = ee.Projection('EPSG:4269').atScale(60)
-ERROR_MARGIN = ee.ErrorMargin(1, 'projected')
+def get_base_request():
+    proj = data.get_default_projection().getInfo()
+    scale_x, scale_y = _get_scales()
 
-proj = PROJECTION.getInfo()
-scale_x = proj['transform'][0]
-scale_y = -proj['transform'][4]
-
-PATCH_SIZE = 512
-
-OFFSET_X = -scale_x * PATCH_SIZE / 2
-OFFSET_Y = -scale_y * PATCH_SIZE / 2
-
-REQUEST = {
-    'fileFormat': 'NPY',
-    'grid': {
-        'dimensions': {
-            'width': PATCH_SIZE,
-            'height': PATCH_SIZE,
-        },
-        'affineTransform': {
-            'scaleX': scale_x,
-            'shearX': 0,
-            'shearY': 0,
-            'scaleY': scale_y,
-        },
-        'crsCode': proj['crs'],
+    request = {
+        'fileFormat': 'NPY',
+        'grid': {
+            'dimensions': {
+                'width': PATCH_SIZE,
+                'height': PATCH_SIZE,
+            },
+            'affineTransform': {
+                'scaleX': scale_x,
+                'shearX': 0,
+                'shearY': 0,
+                'scaleY': scale_y,
+            },
+            'crsCode': proj['crs'],
+        }
     }
-}
+
+    return request
 
 
-bands = ['nir', 'red_edge', 'red', 'green', 'tca', 'ndvi']
-historical_bands = ['historical_' + x for x in bands]
-BANDS = bands + historical_bands
+def get_offsets():
+    scale_x, scale_y = _get_scales()
+
+    offset_x = -scale_x * PATCH_SIZE / 2
+    offset_y = -scale_y * PATCH_SIZE / 2
+
+    return offset_x, offset_y
 
 
 def _get_images_from_feature(feature):
-    geom = feature.geometry(ERROR_MARGIN, PROJECTION)
+    geom = feature.geometry(
+        ee.ErrorMargin(1, 'projected'),
+        data.get_default_projection()
+    )
+
     year = feature.getNumber('year')
 
     images = msslib.getCol(
@@ -117,12 +134,16 @@ def get_image_label_metadata(image_id, feature_id, asset):
     metadata = data.prepare_metadata_for_export(image, feature)
     metadata = {key: val.getInfo() for key, val in metadata.items()}
 
-    geom = feature.geometry(ERROR_MARGIN, PROJECTION)
+    geom = feature.geometry(
+        ee.ErrorMargin(1, 'projected'),
+        data.get_default_projection()
+    )
     coords = geom.centroid(1).getInfo()['coordinates']
 
-    request = dict(REQUEST)
-    request['grid']['affineTransform']['translateX'] = coords[0] + OFFSET_X
-    request['grid']['affineTransform']['translateY'] = coords[1] + OFFSET_Y
+    request = get_base_request()
+    offset_x, offset_y = get_offsets()
+    request['grid']['affineTransform']['translateX'] = coords[0] + offset_x
+    request['grid']['affineTransform']['translateY'] = coords[1] + offset_y
 
     image_request = dict(request)
     image_request['expression'] = image.unmask(0, sameFootprint=False)
@@ -161,6 +182,8 @@ def serialize_tensor(image, label, metadata):
 
 
 def run_pipeline(input_asset, output_prefix, max_requests, beam_args):
+    ee_init()
+
     col = ee.FeatureCollection(input_asset)
     df = geemap.ee_to_df(
         col, col_names=['disturbance_type', 'ecozone', 'id', 'shuffle']
