@@ -93,7 +93,7 @@ def reduce_resolution(im):
     return im.reduceResolution(
         reducer=ee.Reducer.max(),  # if any pixel is 1 make the output 1
         maxPixels=1024,
-    ).reproject(crs=EE_OBJECTS.PROJECTION)
+    ).reproject(crs=get_default_projection())
 
 
 def get_landcover(year=1984):
