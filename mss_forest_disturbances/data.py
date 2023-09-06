@@ -25,13 +25,13 @@ import os
 import ee
 from msslib import msslib
 
-LANDCOVER = ee.ImageCollection('projects/sat-io/open-datasets/CA_FOREST_LC_VLCE2')
-FIRE = ee.Image('users/boothmanrylan/NTEMSCanada/forest_fire_1985-2020')
-HARVEST = ee.Image('users/boothmanrylan/NTEMSCanada/harvest_1985-2020')
-ECOZONES = ee.FeatureCollection('users/boothmanrylan/forest_dominated_ecozones')
-PROJECTION = LANDCOVER.first().projection().atScale(60)
+LANDCOVER = 'projects/sat-io/open-datasets/CA_FOREST_LC_VLCE2'
+FIRE = 'users/boothmanrylan/NTEMSCanada/forest_fire_1985-2020'
+HARVEST = 'users/boothmanrylan/NTEMSCanada/harvest_1985-2020'
+ECOZONES = 'users/boothmanrylan/forest_dominated_ecozones'
 
-ALL_ECOZONE_IDS = ECOZONES.aggregate_array("ECOZONE_ID").distinct()
+PROJECTION = 'EPSG:4269'
+SCALE = 60
 
 LANDCOVER_CLASSES = {
     0: "Unclassified", 20: "Water", 31: "Snow/Ice", 32: "Rock/Rubble",
@@ -73,11 +73,9 @@ JUL_1 = 172 # approximate day of year for July 1st
 SEP_30 = 282 # approximate day of year for Sep. 30th
 DOY_RANGE = [JUL_1, SEP_30]
 
-TM4_T1 = ee.ImageCollection('LANDSAT/LT04/C02/T1_L2')
-TM4_T2 = ee.ImageCollection('LANDSAT/LT04/C02/T2_L2')
-TM5_T1 = ee.ImageCollection('LANDSAT/LT05/C02/T1_L2')
-TM5_T2 = ee.ImageCollection('LANDSAT/LT05/C02/T2_L2')
-TM = TM4_T1.merge(TM4_T2).merge(TM5_T1).merge(TM5_T2)
+
+def get_default_projection():
+    return ee.Projection(PROJECTION).atScale(SCALE)
 
 
 def reduce_resolution(im):
@@ -95,7 +93,7 @@ def reduce_resolution(im):
     return im.reduceResolution(
         reducer=ee.Reducer.max(),  # if any pixel is 1 make the output 1
         maxPixels=1024,
-    ).reproject(crs=PROJECTION)
+    ).reproject(crs=EE_OBJECTS.PROJECTION)
 
 
 def get_landcover(year=1984):
@@ -112,7 +110,7 @@ def get_landcover(year=1984):
     year = ee.Number(year).max(1984)
     start = ee.Date.fromYMD(year, 1, 1)
     end = ee.Date.fromYMD(year, 12, 31)
-    return LANDCOVER.filterDate(start, end).first()
+    return ee.ImageCollection(LANDCOVER).filterDate(start, end).first()
 
 
 def get_treed_mask(year=1984):
@@ -187,7 +185,7 @@ def get_previous_fire_map(year=1985):
         ee.Image that is 1 where there was fire prior to year and 0 otherwise.
     """
     year = ee.Image.constant(year)
-    return reduce_resolution(FIRE.lt(year).unmask(0))
+    return reduce_resolution(ee.Image(FIRE).lt(year).unmask(0))
 
 
 def get_fire_map(year=1985):
@@ -202,7 +200,7 @@ def get_fire_map(year=1985):
         ee.Image that is 1 where there was fire and 0 otherwise
     """
     year = ee.Image.constant(year)
-    return reduce_resolution(FIRE.eq(year).unmask(0))
+    return reduce_resolution(ee.Image(FIRE).eq(year).unmask(0))
 
 
 def get_previous_harvest_map(year=1985):
@@ -218,7 +216,7 @@ def get_previous_harvest_map(year=1985):
         otherwise.
     """
     year = ee.Image.constant(year)
-    return reduce_resolution(HARVEST.lt(year).unmask(0))
+    return reduce_resolution(ee.Image(HARVEST).lt(year).unmask(0))
 
 
 def get_harvest_map(year=1985):
@@ -233,7 +231,7 @@ def get_harvest_map(year=1985):
         ee.Image that is 1 where there was harvest and 0 otherwise
     """
     year = ee.Image.constant(year)
-    return reduce_resolution(HARVEST.eq(year).unmask(0))
+    return reduce_resolution(ee.Image(HARVEST).eq(year).unmask(0))
 
 
 def get_disturbance_map(year=1985):
@@ -293,18 +291,20 @@ def build_grid(aoi, chip_size, overlap_size=0):
     Returns:
         ee.FeatureCollection
     """
+    projection = get_default_projection()
+
     def buffer_and_bound(feat, overlap):
         return ee.Feature(feat
-            .geometry(0.1, PROJECTION)
-            .buffer(overlap_size, ee.ErrorMargin(0.1, 'projected'), PROJECTION)
-            .bounds(0.1, PROJECTION)
+            .geometry(0.1, projection)
+            .buffer(overlap_size, ee.ErrorMargin(0.1, 'projected'), projection)
+            .bounds(0.1, projection)
         )
 
-    scale = PROJECTION.nominalScale()
+    scale = projection.nominalScale()
     patch = scale.multiply(chip_size)
     overlap = scale.multiply(overlap_size)
 
-    grid = aoi.coveringGrid(PROJECTION, patch)
+    grid = aoi.coveringGrid(projection, patch)
     return grid.map(lambda x: buffer_and_bound(x, overlap)).filterBounds(aoi)
 
 
@@ -337,7 +337,7 @@ def build_land_covering_grid(aoi, chip_size, overlap_size=0):
                 dropNulls=False
             ).aggregate_array("landcover").size(),
             "ecozone",
-            ECOZONES.filterBounds(x.geometry()).first().get('ECOZONE_ID')
+            ee.FeatureCollection(ECOZONES).filterBounds(x.geometry()).first().get('ECOZONE_ID')
         )
     )
 
@@ -376,7 +376,7 @@ def add_disturbance_counts(grid, year):
                 dropNulls=False,
             ).aggregate_array("fire").size(),
             "ecozone",
-            ECOZONES.filterBounds(x.geometry()).first().get('ECOZONE_ID'),
+            ee.FeatureCollection(ECOZONES).filterBounds(x.geometry()).first().get('ECOZONE_ID'),
             "year", year
         )
     )
@@ -729,10 +729,10 @@ def make_disturbance_map(year, lookback=5):
     # base will be 1 for no trees, 2 for trees, and 3 for water
     base = get_basemap(year, lookback=1)
 
-    dated_prior_fire = FIRE.updateMask(FIRE.lt(year))
+    dated_prior_fire = ee.Image(FIRE).updateMask(ee.Image(FIRE).lt(year))
     years_since_fire = dated_prior_fire.subtract(year).multiply(-1)
 
-    dated_prior_harvest = HARVEST.updateMask(HARVEST.lt(year))
+    dated_prior_harvest = ee.Image(HARVEST).updateMask(ee.Image(HARVEST).lt(year))
     years_since_harvest = dated_prior_harvest.subtract(year).multiply(-1)
 
     base_offset = 3
@@ -807,9 +807,9 @@ def label_image(image, fire_lookback=3, harvest_lookback=10):
     base = get_basemap(year, lookback=1)
     base = base.add(1)  # to allow for 0 to equal masked pixels
 
-    prior_fire = FIRE.lt(year).And(FIRE.gte(fire_lookback))
+    prior_fire = ee.Image(FIRE).lt(year).And(ee.Image(FIRE).gte(fire_lookback))
     prior_fire = prior_fire.selfMask()
-    prior_harvest = HARVEST.lt(year).And(HARVEST.gte(harvest_lookback))
+    prior_harvest = ee.Image(HARVEST).lt(year).And(ee.Image(HARVEST).gte(harvest_lookback))
     prior_harvest = prior_harvest.selfMask()
 
     base_offset = 3  # non-forest, forest, water
@@ -827,6 +827,13 @@ def label_image(image, fire_lookback=3, harvest_lookback=10):
         doyRange=DOY_RANGE,
         maxCloudCover=20
     ).map(preprocess).select('tca').median()
+
+    # create collection of all TM images
+    TM4_T1 = ee.ImageCollection('LANDSAT/LT04/C02/T1_L2')
+    TM4_T2 = ee.ImageCollection('LANDSAT/LT04/C02/T2_L2')
+    TM5_T1 = ee.ImageCollection('LANDSAT/LT05/C02/T1_L2')
+    TM5_T2 = ee.ImageCollection('LANDSAT/LT05/C02/T2_L2')
+    TM = TM4_T1.merge(TM4_T2).merge(TM5_T1).merge(TM5_T2)
 
     # get the median Thematic Mapper NBR for the image region
     tm_col = TM.filterBounds(image.geometry())
@@ -926,7 +933,8 @@ def prepare_metadata_for_export(image, cell):
     remapped_doy = doy.subtract(DOY_RANGE[0] - 1)  # shift by 1 for leap years
 
     ecozone = cell.get('ecozone')
-    remapped_ecozone = ALL_ECOZONE_IDS.indexOf(ecozone)
+    all_ecozone_ids = ee.FeatureCollection(ECOZONES).aggregate_array('ECOZONE_ID').distinct()
+    remapped_ecozone = all_ecozone_ids.indexOf(ecozone)
 
     metadata = {
         "doy": remapped_doy,
@@ -963,6 +971,8 @@ def export_cell(cell, prefix, cell_id, export_metadata=False):
 
     ecozone_id = cell.getNumber("ecozone").getInfo()
 
+    projection = get_default_projection().getInfo()
+
     for i in range(images.size().getInfo()):
         image_filename = os.path.join(
             prefix,
@@ -977,8 +987,8 @@ def export_cell(cell, prefix, cell_id, export_metadata=False):
             fileNamePrefix=image_filename,
             region=cell.geometry(),
             scale=60,
-            crs=PROJECTION.getInfo()["wkt"],
-            crsTransform=PROJECTION.getInfo()["transform"],
+            crs=projection["wkt"],
+            crsTransform=projection["transform"],
             fileFormat="TFRecord",
             formatOptions={
                 'patchDimensions': (256, 256),
@@ -1105,7 +1115,7 @@ def get_dem():
     aw3d30 = ee.Image('JAXA/ALOS/AW3D30/V2_2').select('AVE_DSM').rename('elev')
     gmted = ee.Image('USGS/GMTED2010').rename('elev')
     dem = ee.ImageCollection([gmted, aw3d30]).mosaic()
-    return dem.divide(3000).reproject(PROJECTION)
+    return dem.divide(3000).reproject(get_default_projection())
 
 
 def image_depth_per_year(col):
