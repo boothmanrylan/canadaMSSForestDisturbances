@@ -4,7 +4,7 @@
 from setuptools import setup
 
 setup(
-    name="mssforestdisturbances",
+    name="mss_forest_disturbances",
     url="https://github.com/boothmanrylan/canadaMSSForestDisturbances/tree/main/",
     packages=["mss_forest_disturbances"],
     install_requires=[
