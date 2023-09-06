@@ -202,7 +202,7 @@ def run_pipeline(input_asset, output_prefix, max_requests, beam_args):
         groups = pcoll | beam.Partition(partition_func, len(sets))
 
         for i, group in enumerate(groups):
-            uid = f'{sets[i][0]_{sets[i][1]}'
+            uid = f'{sets[i][0]}_{sets[i][1]}'
             (
                 group
                 | f'{uid} get image ids'
