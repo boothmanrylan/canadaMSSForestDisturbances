@@ -15,8 +15,21 @@ import numpy as np
 
 import ee
 
-ee.Initialize()
-ee.Authenticate()
+def ee_init():
+    credentials, project = google.auth.default(
+        scopes=[
+            'https://www.googleapis.com/auth/cloud-platform',
+            'https://www.googleapis.com/auth/earthengine',
+        ]
+    )
+    ee.Initialize(
+        credentials.with_quota_project(None),
+        project=project,
+        opt_url=HIGH_VOLUM_ENDPOINT,
+    )
+
+
+ee_init()
 
 import geemap
 from msslib import msslib
@@ -61,20 +74,6 @@ REQUEST = {
 bands = ['nir', 'red_edge', 'red', 'green', 'tca', 'ndvi']
 historical_bands = ['historical_' + x for x in bands]
 BANDS = bands + historical_bands
-
-
-def ee_init():
-    credentials, project = google.auth.default(
-        scopes=[
-            'https://www.googleapis.com/auth/cloud-platform',
-            'https://www.googleapis.com/auth/earthengine',
-        ]
-    )
-    ee.Initialize(
-        credentials.with_quota_project(None),
-        project=project,
-        opt_url=HIGH_VOLUM_ENDPOINT,
-    )
 
 
 def _get_images_from_feature(feature):
