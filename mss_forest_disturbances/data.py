@@ -656,6 +656,22 @@ def add_qa_mask(image):
     return image.addBands(mask)
 
 
+def get_tm():
+    """ Returns an image collection containing all TM images.
+
+    Args:
+        None
+
+    Returns:
+        ee.ImageCollection
+    """
+    TM4_T1 = ee.ImageCollection('LANDSAT/LT04/C02/T1_L2')
+    TM4_T2 = ee.ImageCollection('LANDSAT/LT04/C02/T2_L2')
+    TM5_T1 = ee.ImageCollection('LANDSAT/LT05/C02/T1_L2')
+    TM5_T2 = ee.ImageCollection('LANDSAT/LT05/C02/T2_L2')
+    return TM4_T1.merge(TM4_T2).merge(TM5_T1).merge(TM5_T2)
+
+
 def process_tm(image):
     """ Apply scaling factors, mask clouds, and calcualte NBR.
 
@@ -687,7 +703,7 @@ def get_coincident_tm(image):
     # attempt to find coincident TM image
     day_before = image.date().advance(-1, "day")
     day_after = image.date().advance(1, "day")
-    col = TM.filterDate(day_before, day_after).filterBounds(aoi)
+    col = get_tm().filterDate(day_before, day_after).filterBounds(aoi)
 
     intersection_area = col.geometry().intersection(aoi, 1000).area(1000)
     overlap_percentage = intersection_area.divide(aoi.area(1000))
@@ -828,15 +844,8 @@ def label_image(image, fire_lookback=3, harvest_lookback=10):
         maxCloudCover=20
     ).map(preprocess).select('tca').median()
 
-    # create collection of all TM images
-    TM4_T1 = ee.ImageCollection('LANDSAT/LT04/C02/T1_L2')
-    TM4_T2 = ee.ImageCollection('LANDSAT/LT04/C02/T2_L2')
-    TM5_T1 = ee.ImageCollection('LANDSAT/LT05/C02/T1_L2')
-    TM5_T2 = ee.ImageCollection('LANDSAT/LT05/C02/T2_L2')
-    TM = TM4_T1.merge(TM4_T2).merge(TM5_T1).merge(TM5_T2)
-
     # get the median Thematic Mapper NBR for the image region
-    tm_col = TM.filterBounds(image.geometry())
+    tm_col = get_tm().filterBounds(image.geometry())
     tm_col = tm_col.filter(ee.Filter.lte('CLOUD_COVER', 20))
     tm_col = tm_col.filter(ee.Filter.calendarRange(*DOY_RANGE, "day_of_year"))
     nbr_median = tm_col.map(process_tm).select("NBR").median()
