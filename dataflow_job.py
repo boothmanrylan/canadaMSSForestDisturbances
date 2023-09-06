@@ -135,7 +135,7 @@ def get_image_label_metadata(image_id, feature_id, asset):
     return np_image, np_label, metadata
 
 
-def serialze_tensor(image, label, metadata):
+def serialize_tensor(image, label, metadata):
     features = {
         b: tf.train.Feature(
             float_list=tf.train.FloatList(
@@ -207,7 +207,7 @@ def run_pipeline(input_asset, output_prefix, max_requests, beam_args):
                 >> beam.FlatMap(get_image_ids, asset=input_asset)
                 | f'{uid} reshuffle' >> beam.Reshuffle()
                 | f'{uid} get data' >> beam.MapTuple(get_image_label_metadata)
-                | f'{uid} serialze' >> beam.MapTuple(serialize_tensor)
+                | f'{uid} serialize' >> beam.MapTuple(serialize_tensor)
                 | f'{uid} write'
                 >> beam.io.WriteToTFRecord(
                     paths[i], file_name_suffix='.tfrecord.gz'
