@@ -73,6 +73,10 @@ JUL_1 = 172 # approximate day of year for July 1st
 SEP_30 = 282 # approximate day of year for Sep. 30th
 DOY_RANGE = [JUL_1, SEP_30]
 
+_BANDS = ['nir', 'red_edge', 'red', 'green', 'tca', 'ndvi']
+_HISTORICAL_BANDS = ['historical_' + x for x in _BANDS]
+BANDS = _BANDS + _HISTORICAL_BANDS
+
 
 def get_default_projection():
     return ee.Projection(PROJECTION).atScale(SCALE)
@@ -931,6 +935,7 @@ def prepare_image_for_export(image):
         ee.List.repeat("float", image.bandNames().size())
     )
     image = image.cast(types)
+    image = image.select(BANDS)
     return image, label
 
 
