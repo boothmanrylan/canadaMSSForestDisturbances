@@ -1156,61 +1156,6 @@ def image_depth_per_year(col):
     return ee.ImageCollection(output).toBands()
 
 
-# def prepare_export(aoi, bands, first_year=1985, last_year=1995):
-#     """ Prepares images bounding aoi for export to a TFRecord.
-#
-#     Args:
-#         aoi: ee.Geometry, region to export images from
-#         bands: List of str, selectors for bands to output
-#         patch_size: int, size of TFRecord patch
-#         first_year: int, start of year range
-#         last_year: int, end of year range
-#
-#     Returns:
-#         ee.Image
-#     """
-#     col = msslib.getCol(
-#         aoi=aoi,
-#         yearRange=[first_year, last_year],
-#         doyRange=DOY_RANGE,
-#         maxCloudCover=100,
-#     )
-#     col = col.map(msslib.calcToa)
-#     col = col.map(msslib.addTc)
-#
-#     tca_col = col.map(mss_clear_mask)
-#     median_tca = tca_col.reduce(ee.Reducer.median()).select('tca_median')
-#
-#     tm_col = TM.filterBounds(aoi).map(process_tm)
-#     median_nbr = tm_col.reduce(ee.Reducer.median()).select('NBR_median')
-#
-#     col = col.map(lambda im: add_label(im, median_tca, median_nbr))
-#
-#     col = col.map(add_qa_mask)
-#     col = col.map(lambda im: im.unmask(0, sameFootprint=False))
-#     col = col.map(normalize_tca)
-#     col = col.map(add_date)
-#     col = col.map(normalize_doy)
-#     col = col.map(lambda im: normalize_year(im, first_year))
-#     col = col.map(lambda im: im.float())
-#
-#     output = col.toArrayPerBand()
-#
-#     years = col.aggregate_array("year").distinct()
-#     labels = ee.ImageCollection(years.map(get_label))
-#     labels = labels.toArrayPerBand().float()
-#
-#     output = output.addBands(labels)
-#
-#     depth = col.size().getInfo()
-#     depths = {b: depth for b in bands}
-#     depths["annual_label"] = years.length().getInfo()
-#
-#     output = output.select(bands + ["annual_label"])
-#
-#     return output, depths
-
-
 def sample_image(image, points_per_class=2, num_classes=9):
     """ Given an image return a stratified sample of points from it.
 
