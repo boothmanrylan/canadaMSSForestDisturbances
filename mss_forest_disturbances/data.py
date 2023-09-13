@@ -401,6 +401,7 @@ def _get_top_property(grid, prop, count):
     Returns:
         ee.FeatureCollection
     """
+    grid = grid.filter(ee.Filter.gt(0, prop))
     output_grid = grid.limit(count, prop, False)
     output_grid = output_grid.map(
         lambda elem: elem.set("disturbance_type", prop)
