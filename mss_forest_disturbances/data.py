@@ -538,11 +538,8 @@ def sample_cells(
     Returns:
         List of three ee.FeatureCollections
     """
-    # drop cells with no images overlapping the centroid in the target year
-    grid = grid.map(set_image_overlap)
-    grid = grid.filter(ee.Filter.gt("num_overlapping_images", 0))
-
-    # oversample then limit later to account for removal of duplicates
+    # oversample then limit later to account for removal of duplicates and
+    # cells with no overlapping images
     oversample = 2
     fire_set = get_top_fire(grid, int(oversample * fire_count))
     harvest_set = get_top_harvest(grid, int(oversample * harvest_count))
@@ -550,12 +547,16 @@ def sample_cells(
         grid, int(oversample * undisturbed_count)
     )
 
-    # merge sets to drop duplicates then split by dominant disturbance type and
-    # limit the number in each set again
+    # merge sets to drop duplicates
     grouped_set = ee.FeatureCollection(
         [fire_set, harvest_set, undisturbed_set]
     ).flatten().distinct('id')
 
+    # drop cells with no overlapping images
+    grouped_set = grouped_set.map(set_image_overlap)
+    grouped_set = grouped_set.filter(ee.Filter.gt("num_overlapping_images", 0))
+
+    # split groups by dominant disturbance type again
     fire_set = grouped_set.filter(ee.Filter.eq("disturbance_type", "fire"))
     fire_set = fire_set.limit(fire_count, "fire", False)
 
