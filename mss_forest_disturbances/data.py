@@ -967,71 +967,6 @@ def prepare_metadata_for_export(image, cell):
     return metadata
 
 
-def export_cell(cell, prefix, cell_id, export_metadata=False):
-    """ Exports all images that overlap cell
-
-    Args:
-        cell: ee.Feature,
-        prefix: string, location in cloud storage to store result
-        cell_id: int, used to distinguish files resulting from different cells
-        exportt_metadata: bool, if True, export image metadata in separate
-            TFRecord
-
-    Returns:
-        None, this method starts the export tasks
-    """
-    year = cell.getNumber("year")
-    images = msslib.getCol(
-        aoi=cell.geometry(),
-        yearRange=[year, year],
-        doyRange=DOY_RANGE,
-        maxCloudCover=100
-    ).map(prepare_image_for_export)
-
-    images_list = images.toList(images.size())
-    metadata_list = images_list.map(
-        lambda im: prepare_metadata_for_export(im, cell)
-    )
-
-    ecozone_id = cell.getNumber("ecozone").getInfo()
-
-    projection = get_default_projection().getInfo()
-
-    for i in range(images.size().getInfo()):
-        image_filename = os.path.join(
-            prefix,
-            f"ecozone_{ecozone_id}",
-            f"cell_{cell_id:03}_image_{i:03}"
-        )
-        metadata_filename = image_filename.replace("_image_", "_metadata_")
-        image_task = ee.batch.Export.image.toCloudStorage(
-            image=ee.Image(images_list.get(i)),
-            description=f"image_export_{i}",
-            bucket="mssforestdisturbances",
-            fileNamePrefix=image_filename,
-            region=cell.geometry(),
-            scale=60,
-            crs=projection["wkt"],
-            crsTransform=projection["transform"],
-            fileFormat="TFRecord",
-            formatOptions={
-                'patchDimensions': (256, 256),
-            },
-        )
-        metadata_task = ee.batch.Export.table.toCloudStorage(
-            collection=ee.FeatureCollection(metadata_list.get(i)),
-            description=f"metadata_export_{i}",
-            bucket="mssforestdisturbances",
-            fileNamePrefix=metadata_filename,
-            fileFormat="TFRecord",
-            selectors=["doy", "lat", "lon", "ecozone"],
-        )
-        image_task.start()
-
-        if export_metadata:
-            metadata_task.start()
-
-
 def get_label(year):
     """ Create target labelling for the given year and aoi.
 
@@ -1074,55 +1009,6 @@ def normalize_tca(image):
     return image.addBands(tca, ['tca'], True)
 
 
-def normalize_doy(image):
-    """ Normalizes day of year values to ~[0, 1]
-
-    Because we only use images from ~Jul 1st to ~Sep 30th we do not need to
-    worry about Jan 1st mapping to 0 and Dec 31st mapping to 1
-
-    Args:
-        image: ee.Image
-
-    Returns:
-        ee.Image
-    """
-    doy = image.select(['doy'])
-    doy = doy.subtract(DOY_RANGE[0]).divide(DOY_RANGE[1] - DOY_RANGE[0])
-    return image.addBands(doy, ['doy'], True)
-
-
-def normalize_year(image, min_year):
-    """ Converts year values to indices starting at 0.
-
-    Args:
-        image: ee.Image
-        min_year: int
-
-    Returns:
-        ee.Image
-    """
-    year = image.select(['year'])
-    year = year.subtract(min_year)
-    return image.addBands(year, ['year'], True)
-
-
-def add_date(im):
-    """ Returns im with additional bands containing its acquisition date.
-
-    One band with the year and one band with the day of year are added
-
-    Args:
-        im: ee.Image
-
-    Returns:
-        ee.Image
-    """
-    date = ee.Image(im).date()
-    year = ee.Image.constant(date.get("year")).rename("year")
-    doy = ee.Image.constant(date.getRelative("day", "year")).rename("doy")
-    return im.addBands(year.float()).addBands(doy.float())
-
-
 def get_dem():
     """ Gets a global digital elevation model.
 
@@ -1140,30 +1026,6 @@ def get_dem():
     gmted = ee.Image('USGS/GMTED2010').rename('dem')
     dem = ee.ImageCollection([gmted, aw3d30]).mosaic()
     return dem.divide(MAX_ELEV).reproject(get_default_projection())
-
-
-def image_depth_per_year(col):
-    """ Returns an image counting the number of images in each year in col.
-
-    The output image will have N bands where there are N years of images in
-    col. The ith band of the output will contain the number of images in the
-    ith year of col at each pixel.
-
-    Args:
-        col: ee.ImageCollection
-
-    Returns:
-        ee.Image
-    """
-    def calc_depth(year, col):
-        col = col.filter(ee.Filter.eq("year", year))
-        first_band = col.first().bandNames().get(0)
-        depth = col.select([first_band]).reduce(ee.Reducer.count())
-        return depth.rename("depth")
-
-    years = col.aggregate_array("year").distinct()
-    output = years.map(lambda y: calc_depth(y, col))
-    return ee.ImageCollection(output).toBands()
 
 
 def sample_image(image, points_per_class=2, num_classes=9):
