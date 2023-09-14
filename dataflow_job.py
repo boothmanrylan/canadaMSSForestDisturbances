@@ -207,7 +207,6 @@ def run_pipeline(input_asset, output_prefix, max_requests, beam_args):
     beam_options = PipelineOptions(
         beam_args,
         save_main_session=True,
-        setup_file='./setup.py',
         max_num_workers=max_requests,
         direct_num_works=max(max_requests, 20),
         disk_size_gb=50,
