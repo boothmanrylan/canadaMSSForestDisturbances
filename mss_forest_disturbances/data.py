@@ -941,7 +941,9 @@ def prepare_image_for_export(image):
     )
     image = image.cast(types)
     image = image.select(BANDS)
-    return image, label
+
+    default_proj = get_default_projection()
+    return image.reproject(default_proj), label.reproject(default_proj)
 
 
 def prepare_metadata_for_export(image, cell):
