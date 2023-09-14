@@ -922,13 +922,13 @@ def get_lookback_median(image, lookback=3, max_cloud_cover=20):
 
 
 def prepare_image_for_export(image):
-    """ Preprocess image, adds historical band, and calculates image label.
+    """ Preprocess image, adds historical bands, and calculates image label.
 
     Args:
         image: ee.Image originating from msslib.getCol
 
     Returns:
-        ee.Image
+        ee.Image, ee.Image: the prepared image and label respectively
     """
     image = preprocess(image)
     historical_bands = get_lookback_median(image)
