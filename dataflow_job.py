@@ -25,10 +25,6 @@ BUCKET = 'gs://rylan-mssforestdisturbances/'
 LOCATION = 'us-central1'
 ASSET_PATH = 'projects/api-project-269347469410/assets/rylan-mssforestdisturbances/'
 
-_BANDS = ['nir', 'red_edge', 'red', 'green', 'tca', 'ndvi']
-_HISTORICAL_BANDS = ['historical_' + x for x in _BANDS]
-BANDS = _BANDS + _HISTORICAL_BANDS
-
 PATCH_SIZE = 512
 
 
@@ -127,7 +123,6 @@ def get_image_label_metadata(image_id, feature_id, asset):
 
     image = msslib.process(ee.Image(image_id))
     image, label = data.prepare_image_for_export(image)
-    image = image.select(BANDS)
 
     col = ee.FeatureCollection(asset)
     feature = col.filter(ee.Filter.eq('id', feature_id)).first()
@@ -163,7 +158,7 @@ def serialize_tensor(image, label, metadata):
                 value=image[b].flatten()
             )
         )
-        for b in BANDS
+        for b in data.BANDS
     }
 
     features['label'] = tf.train.Feature(
@@ -174,7 +169,7 @@ def serialize_tensor(image, label, metadata):
 
     for key, value in metadata.items():
         features[key] = tf.train.Feature(
-            int64_list=tf.train.Int64List(value=[value])
+            float32_list=tf.train.Float32List(value=[value])
         )
 
     example = tf.train.Example(features=tf.train.Features(feature=features))

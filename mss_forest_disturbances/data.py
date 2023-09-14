@@ -33,6 +33,8 @@ ECOZONES = 'users/boothmanrylan/forest_dominated_ecozones'
 PROJECTION = 'EPSG:4269'
 SCALE = 60
 
+MAX_ELEV = 3000  # few points in Canada are higher than this
+
 LANDCOVER_CLASSES = {
     0: "Unclassified", 20: "Water", 31: "Snow/Ice", 32: "Rock/Rubble",
     33: "Exposed/Barren land", 40: "Bryoids", 50: "Shrubs", 80: "Wetland",
@@ -75,7 +77,7 @@ DOY_RANGE = [JUL_1, SEP_30]
 
 _BANDS = ['nir', 'red_edge', 'red', 'green', 'tca', 'ndvi']
 _HISTORICAL_BANDS = ['historical_' + x for x in _BANDS]
-BANDS = _BANDS + _HISTORICAL_BANDS
+BANDS = _BANDS + ['dem'] + _HISTORICAL_BANDS
 
 
 def get_default_projection():
@@ -778,6 +780,7 @@ def preprocess(image):
     image = msslib.addTc(image)
     image = normalize_tca(image)
     image = msslib.addNdvi(image)
+    image = image.addBands(get_dem())
     return image
 
 
@@ -952,9 +955,14 @@ def prepare_metadata_for_export(image, cell):
     all_ecozone_ids = ee.FeatureCollection(ECOZONES).aggregate_array('ECOZONE_ID').distinct()
     remapped_ecozone = all_ecozone_ids.indexOf(ecozone)
 
+    image_centroid = image.geometry().centroid(1)
+    coords = image_centroid.coordinates()
+
     metadata = {
-        "doy": remapped_doy,
-        "ecozone": remapped_ecozone,
+        "doy": remapped_doy.float(),
+        "ecozone": remapped_ecozone.float(),
+        "lon": coords.get(0),
+        "lat": coords.get(1),
     }
     return metadata
 
@@ -1128,10 +1136,10 @@ def get_dem():
     Returns:
         ee.Image
     """
-    aw3d30 = ee.Image('JAXA/ALOS/AW3D30/V2_2').select('AVE_DSM').rename('elev')
-    gmted = ee.Image('USGS/GMTED2010').rename('elev')
+    aw3d30 = ee.Image('JAXA/ALOS/AW3D30/V2_2').select('AVE_DSM').rename('dem')
+    gmted = ee.Image('USGS/GMTED2010').rename('dem')
     dem = ee.ImageCollection([gmted, aw3d30]).mosaic()
-    return dem.divide(3000).reproject(get_default_projection())
+    return dem.divide(MAX_ELEV).reproject(get_default_projection())
 
 
 def image_depth_per_year(col):
