@@ -169,7 +169,7 @@ def serialize_tensor(image, label, metadata):
 
     for key, value in metadata.items():
         features[key] = tf.train.Feature(
-            float32_list=tf.train.Float32List(value=[value])
+            float_list=tf.train.FloatList(value=[value])
         )
 
     example = tf.train.Example(features=tf.train.Features(feature=features))
