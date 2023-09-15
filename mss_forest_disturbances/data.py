@@ -780,6 +780,7 @@ def preprocess(image):
     image = msslib.addTc(image)
     image = normalize_tca(image)
     image = msslib.addNdvi(image)
+    image = image.reproject(get_default_projection())
     image = image.addBands(get_dem())
     return image
 
