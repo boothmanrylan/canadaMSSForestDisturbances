@@ -7,8 +7,8 @@ import os
 import ee
 from msslib import msslib
 
-import constants
-import preprocessing
+from . import constants
+from . import preprocessing
 
 
 def build_grid(aoi, chip_size, overlap_size=0):
@@ -59,7 +59,7 @@ def set_ecozone(feat):
         ee.Feature, the input feature with new property 'ecozone' containing
         the integer ecozone id of the feature.
     """
-    geom = feat.goemetry()
+    geom = feat.geometry()
     ecozones = ee.FeatureCollection(constants.ECOZONES)
     overlapping_ecozones = ecozones.filterBounds(geom)
     first_overlapping_ecozone = overlapping_ecozones.first()

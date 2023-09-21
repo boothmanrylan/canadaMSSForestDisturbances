@@ -25,7 +25,7 @@ import os
 import ee
 from msslib import msslib
 
-import constants
+from . import constants
 
 def reduce_resolution(im):
     """ Explicitly reduce the resolution of a 1/0 image from 30m Landsat data.
