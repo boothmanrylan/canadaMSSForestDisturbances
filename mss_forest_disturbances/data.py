@@ -318,6 +318,25 @@ def build_grid(aoi, chip_size, overlap_size=0):
     return grid.map(buffer_and_bound).filterBounds(aoi)
 
 
+def set_ecozone(feat):
+    """ Sets the ecozone property of the given feature.
+
+    If the feature overlaps multiply ecozones ties are broken using 'first'
+
+    Args:
+        feat: ee.Feature
+
+    Returnes:
+        ee.Feature, the input feature with new property 'ecozone' containing
+        the integer ecozone id of the feature.
+    """
+    geom = feat.goemetry()
+    overlapping_ecozones = ee.FeatureCollection(ECOZONES).filterBounds(geom)
+    first_overlapping_ecozone = overlapping_ecozones.first()
+    ecozone_id = first_overlapping_ecozone.get('ECOZONE_ID')
+    return feat.set('ecozone', ecozone_id)
+
+
 def build_land_covering_grid(aoi, chip_size, overlap_size=0):
     """ Creates a tiled grid that covers aoi, excluding water dominant tiles.
 
@@ -346,10 +365,9 @@ def build_land_covering_grid(aoi, chip_size, overlap_size=0):
                 numPixels=2500,
                 dropNulls=False
             ).aggregate_array("landcover").size(),
-            "ecozone",
-            ee.FeatureCollection(ECOZONES).filterBounds(x.geometry()).first().get('ECOZONE_ID')
         )
     )
+    grid = grid.map(set_ecozone)
 
     return grid.filter(ee.Filter.gte("landcover", 1000))
 
@@ -385,11 +403,10 @@ def add_disturbance_counts(grid, year):
                 numPixels=2500,
                 dropNulls=False,
             ).aggregate_array("fire").size(),
-            "ecozone",
-            ee.FeatureCollection(ECOZONES).filterBounds(x.geometry()).first().get('ECOZONE_ID'),
             "year", year
         )
     )
+    grid = grid.map(set_ecozone)
 
     return grid
 
@@ -687,7 +704,7 @@ def get_tm():
 def process_tm(image):
     """ Apply scaling factors, mask clouds, and calcualte NBR.
 
-    See here for explanation of sclaing factos
+    See here for explanation of scaling factos
     https://developers.google.com/earth-engine/datasets/catalog/LANDSAT_LT04_C02_T1_L2
 
     Args:
