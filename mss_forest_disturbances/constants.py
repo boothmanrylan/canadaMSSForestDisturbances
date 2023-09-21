@@ -53,6 +53,12 @@ JUL_1 = 172 # approximate day of year for July 1st
 SEP_30 = 282 # approximate day of year for Sep. 30th
 DOY_RANGE = [JUL_1, SEP_30]
 
+FIRST_MSS_YEAR = 1972
+LAST_MSS_YEAR = 1995
+
+FIRST_LANDCOVER_YEAR = 1984
+FIRST_DISTURBANCE_YEAR = 1985
+
 _BANDS = ['nir', 'red_edge', 'red', 'green', 'tca', 'ndvi']
 _HISTORICAL_BANDS = ['historical_' + x for x in _BANDS]
 BANDS = _BANDS + ['dem'] + _HISTORICAL_BANDS

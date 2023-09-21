@@ -88,8 +88,10 @@ def build_land_covering_grid(aoi, chip_size, overlap_size=0):
         )
         return water_mask.And(land_cover)
 
-    # TODO: make these years constants in constant.py
-    years = ee.List.sequence(1984, 1995)
+    years = ee.List.sequence(
+        constants.FIRST_LANDCOVER_YEAR,
+        constants.LAST_MSS_YEAR
+    )
     annual_landcover = ee.ImageCollection(years.map(get_landcover))
     landcover = annual_landcover.reduce(ee.Reducer.sum()).gt(0).selfMask()
     landcover = landcover.rename("landcover")

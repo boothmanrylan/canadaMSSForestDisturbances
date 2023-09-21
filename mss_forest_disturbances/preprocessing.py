@@ -45,7 +45,7 @@ def reduce_resolution(im):
     ).reproject(crs=constants.get_default_projection())
 
 
-def get_landcover(year=1984):
+def get_landcover(year=constants.FIRST_LANDCOVER_YEAR):
     """Gets a landcover map for the given year.
 
     The map is the Canada Forested Landcover VLCE2 map.
@@ -56,14 +56,14 @@ def get_landcover(year=1984):
     Returns:
         ee.Image
     """
-    year = ee.Number(year).max(1984)  # TODO: move this year to constants
+    year = ee.Number(year).max(constants.FIRST_LANDCOVER_YEAR)
     start = ee.Date.fromYMD(year, 1, 1)
     end = ee.Date.fromYMD(year, 12, 31)
     col = ee.ImageCollection(constants.LANDCOVER)
     return col.filterDate(start, end).first()
 
 
-def get_treed_mask(year=1984):
+def get_treed_mask(year=constants.FIRST_LANDCOVER_YEAR):
     """Gets a tree mask for the given year.
 
     The mask is based on the Canada Forested Landcover VLCE2 map.
@@ -83,7 +83,7 @@ def get_treed_mask(year=1984):
     return reduce_resolution(landcover.eq(81).Or(landcover.gte(210)))
 
 
-def get_water_mask(year=1984):
+def get_water_mask(year=constants.FIRST_LANDCOVER_YEAR):
     """Gets a water mask for the given year and aoi.
 
     The returned mask can be used like this:
@@ -104,7 +104,7 @@ def get_water_mask(year=1984):
     return reduce_resolution(landcover.neq(20))
 
 
-def get_basemap(year=1984, lookback=0):
+def get_basemap(year=constants.FIRST_LANDCOVER_YEAR, lookback=0):
     """Gets a tress/water/other map for the given year.
 
     The map is based on the Canada Forested Landcover VLCE2 map.
@@ -123,7 +123,7 @@ def get_basemap(year=1984, lookback=0):
     return trees.blend(water)
 
 
-def get_previous_fire_map(year=1985):
+def get_previous_fire_map(year=constants.FIRST_DISTURBANCE_YEAR):
     """ Get a map of all fire up to but not including year.
 
     The map is based on the Canadian Forest Service's annual forest fire maps.
@@ -138,7 +138,7 @@ def get_previous_fire_map(year=1985):
     return reduce_resolution(ee.Image(constants.FIRE).lt(year).unmask(0))
 
 
-def get_fire_map(year=1985):
+def get_fire_map(year=constants.FIRST_DISTURBANCE_YEAR):
     """Gets a map of forest fire for the given year.
 
     The map is based on the Canadian Forest Service's annual forest fire maps.
@@ -153,7 +153,7 @@ def get_fire_map(year=1985):
     return reduce_resolution(ee.Image(constants.FIRE).eq(year).unmask(0))
 
 
-def get_previous_harvest_map(year=1985):
+def get_previous_harvest_map(year=constants.FIRST_DISTURBANCE_YEAR):
     """ Gets a map of all harvest up to but not including year.
 
     The map is based on the Canadian Forest Service's annual harvest maps.
@@ -169,7 +169,7 @@ def get_previous_harvest_map(year=1985):
     return reduce_resolution(ee.Image(constants.HARVEST).lt(year).unmask(0))
 
 
-def get_harvest_map(year=1985):
+def get_harvest_map(year=constants.FIRST_DISTURBANCE_YEAR):
     """Gets a map of harvest for the given year.
 
     The map is based on the Canadian Forest Service's annual harvest maps.
@@ -184,7 +184,7 @@ def get_harvest_map(year=1985):
     return reduce_resolution(ee.Image(constants.HARVEST).eq(year).unmask(0))
 
 
-def get_disturbance_map(year=1985):
+def get_disturbance_map(year=constants.FIRST_DISTURBANCE_YEAR):
     """Gets a map of typed forest disturbances for the given year.
 
     The map is based on the Canadian Forest Service's annual harvest and fire
@@ -208,7 +208,7 @@ def get_disturbance_map(year=1985):
     return harvest.blend(fire)
 
 
-def get_disturbed_regions(year=1985):
+def get_disturbed_regions(year=constants.FIRST_DISTURBANCE_YEAR):
     """ Returns a map of all disturbances for a given year and aoi.
 
     The result will be 1 wherever there was a disturbance and 0 otherwise.
@@ -463,7 +463,7 @@ def label_image(image, fire_lookback=3, harvest_lookback=10):
     # get the median TCA for the image region
     tca_median = msslib.getCol(
         aoi=image.geometry(),
-        yearRange=[1972, 1995],
+        yearRange=[constants.FIRST_MSS_YEAR, constants.LAST_MSS_YEAR],
         doyRange=constants.DOY_RANGE,
         maxCloudCover=20
     ).map(preprocess).select('tca').median()
