@@ -103,7 +103,7 @@ def build_land_covering_grid(aoi, chip_size, overlap_size=0):
             "landcover",
             landcover.sample(
                 x.geometry(),
-                scale=60,
+                scale=constants.SCALE,
                 numPixels=2500,
                 dropNulls=False
             ).aggregate_array("landcover").size(),
@@ -135,13 +135,13 @@ def add_disturbance_counts(grid, year):
         lambda x: x.set(
             "harvest", harvest.sample(
                 x.geometry(),
-                scale=60,
+                scale=constants.SCALE,
                 numPixels=2500,
                 dropNulls=False,
             ).aggregate_array("harvest").size(),
             "fire", fire.sample(
                 x.geometry(),
-                scale=60,
+                scale=constants.SCALE,
                 numPixels=2500,
                 dropNulls=False,
             ).aggregate_array("fire").size(),

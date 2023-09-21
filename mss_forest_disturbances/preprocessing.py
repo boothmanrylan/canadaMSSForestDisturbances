@@ -667,7 +667,7 @@ def sample_image(image, points_per_class=2, num_classes=9):
     def _sample(im):
         return im.sample(
             region=im.geometry(),
-            scale=60,
+            scale=constants.SCALE,
             numPixels=1000 * points_per_class,
             dropNulls=True
         ).limit(points_per_class)
