@@ -30,7 +30,7 @@ FIRE = 'users/boothmanrylan/NTEMSCanada/forest_fire_1985-2020'
 HARVEST = 'users/boothmanrylan/NTEMSCanada/harvest_1985-2020'
 ECOZONES = 'users/boothmanrylan/forest_dominated_ecozones'
 
-PROJECTION = 'EPSG:4269'
+PROJECTION = 'EPSG:3978'
 SCALE = 60
 
 MAX_ELEV = 3000  # few points in Canada are higher than this
