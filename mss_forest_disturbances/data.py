@@ -298,20 +298,24 @@ def build_grid(aoi, chip_size, overlap_size=0):
         ee.FeatureCollection
     """
     projection = get_default_projection()
+    error = ee.ErrorMargin(0.1, "projected")
 
-    def buffer_and_bound(feat, overlap):
-        return ee.Feature(feat
-            .geometry(0.1, projection)
-            .buffer(overlap_size, ee.ErrorMargin(0.1, 'projected'), projection)
-            .bounds(0.1, projection)
-        )
+    def buffer_and_bound(feat):
+        geom = feat.geometry(0.1, projection)
+        buffered = geom.buffer(overlap_size, error, projection)
+        bounded = buffered.bounds(0.1, projection)
+        return ee.Feature(bounded)
+
+    # we want the final patch_size to be equal to the input chip size
+    # therefore if overlap_size is given we want to start with a smaller
+    # initial size and buffer out to the desired size
+    chip_size -= overlap_size
 
     scale = projection.nominalScale()
     patch = scale.multiply(chip_size)
-    overlap = scale.multiply(overlap_size)
 
     grid = aoi.coveringGrid(projection, patch)
-    return grid.map(lambda x: buffer_and_bound(x, overlap)).filterBounds(aoi)
+    return grid.map(buffer_and_bound).filterBounds(aoi)
 
 
 def build_land_covering_grid(aoi, chip_size, overlap_size=0):
