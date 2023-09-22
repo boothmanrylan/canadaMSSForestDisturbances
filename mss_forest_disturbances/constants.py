@@ -1,6 +1,6 @@
 """Global constants and helper functions used throughout project.
 """
-
+import os
 import ee
 
 LANDCOVER = 'projects/sat-io/open-datasets/CA_FOREST_LC_VLCE2'
@@ -74,6 +74,13 @@ ASSET_PATH = os.path.join(
 )
 
 EXPORT_PATCH_SIZE = 512
+PATCH_SIZE = 128
+OVERLAP = 8
+
+HIGH_VOLUME_ENDPOINT = 'https://earthengine-highvolume.googleapis.com'
+MAX_REQUESTS = 20
+
+BASE_DOCKER_IMAGE_URI = f"{LOCATION}-docker.pkg.dev/{PROJECT}/dataflow-containers/dataflow/"
 
 
 def get_default_projection():
