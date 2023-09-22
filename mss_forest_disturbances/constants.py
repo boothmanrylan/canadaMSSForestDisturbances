@@ -49,8 +49,8 @@ CLASS_PALETTE = [
 
 CLASS_VIS = {'min': 1, 'max': 9, 'palette': CLASS_PALETTE}
 
-JUL_1 = 172 # approximate day of year for July 1st
-SEP_30 = 282 # approximate day of year for Sep. 30th
+JUL_1 = 172  # approximate day of year for July 1st
+SEP_30 = 282  # approximate day of year for Sep. 30th
 DOY_RANGE = [JUL_1, SEP_30]
 
 FIRST_MSS_YEAR = 1972
@@ -62,6 +62,18 @@ FIRST_DISTURBANCE_YEAR = 1985
 _BANDS = ['nir', 'red_edge', 'red', 'green', 'tca', 'ndvi']
 _HISTORICAL_BANDS = ['historical_' + x for x in _BANDS]
 BANDS = _BANDS + ['dem'] + _HISTORICAL_BANDS
+
+PROJECT = 'api-project-269347469410'
+BUCKET = 'gs://rylan-mssforestdisturbances/'
+LOCATION = 'us-central1'
+ASSET_PATH = os.path.join(
+    'projects',
+    PROJECT,
+    'assets',
+    'rylan-mssforestdisturbances'
+)
+
+EXPORT_PATCH_SIZE = 512
 
 
 def get_default_projection():

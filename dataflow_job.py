@@ -1,3 +1,6 @@
+"""Launches a Beam/Dataflow job to generate training/testing data.
+"""
+
 import argparse
 import io
 import itertools
@@ -17,15 +20,7 @@ import ee
 
 import geemap
 from msslib import msslib
-from mss_forest_disturbances import data
-
-
-PROJECT = 'api-project-269347469410'
-BUCKET = 'gs://rylan-mssforestdisturbances/'
-LOCATION = 'us-central1'
-ASSET_PATH = 'projects/api-project-269347469410/assets/rylan-mssforestdisturbances/'
-
-PATCH_SIZE = 512
+from mss_forest_disturbances import constants, preprocessing
 
 
 def ee_init():
@@ -42,52 +37,36 @@ def ee_init():
     )
 
 
-def _get_scales():
-    proj = data.get_default_projection().getInfo()
-
-    scale_x = proj['transform'][0]
-    scale_y = -proj['transform'][4]
-
-    return scale_x, scale_y
-
-
-def get_base_request():
-    proj = data.get_default_projection().getInfo()
-    scale_x, scale_y = _get_scales()
-
+def build_request(cell, size):
+    # get top left corner of cell in *unscaled* projection
+    proj = ee.Projection(constants.PROJECTION)
+    coords = cell.geometry(1, proj).getInfo()['coordinates'][0][3]
     request = {
         'fileFormat': 'NPY',
         'grid': {
             'dimensions': {
-                'width': PATCH_SIZE,
-                'height': PATCH_SIZE,
+                'width': size,
+                'height': size,
             },
             'affineTransform': {
-                'scaleX': scale_x,
+                'scaleX': constants.SCALE,
                 'shearX': 0,
+                'translateX': coords[0],
                 'shearY': 0,
-                'scaleY': scale_y,
+                'scaleY': -constants.SCALE,
+                'translateY': coords[1],
             },
-            'crsCode': proj['crs'],
+            'crsCode': proj.getInfo()['crs'],
         }
     }
 
     return request
 
 
-def get_offsets():
-    scale_x, scale_y = _get_scales()
-
-    offset_x = -scale_x * PATCH_SIZE / 2
-    offset_y = -scale_y * PATCH_SIZE / 2
-
-    return offset_x, offset_y
-
-
 def _get_images_from_feature(feature):
     geom = feature.geometry(
         ee.ErrorMargin(1, 'projected'),
-        data.get_default_projection()
+        constants.get_default_projection()
     )
 
     year = feature.getNumber('year')
@@ -95,7 +74,7 @@ def _get_images_from_feature(feature):
     images = msslib.getCol(
         aoi=geom.centroid(1),
         yearRange=[year, year],
-        doyRange=data.DOY_RANGE,
+        doyRange=constants.DOY_RANGE,
         maxCloudCover=100
     )
 
@@ -122,30 +101,25 @@ def get_image_label_metadata(image_id, feature_id, asset):
     ee_init()
 
     image = msslib.process(ee.Image(image_id))
-    image, label = data.prepare_image_for_export(image)
+    image, label = preprocessing.prepare_image_for_export(image)
 
     col = ee.FeatureCollection(asset)
-    feature = col.filter(ee.Filter.eq('id', feature_id)).first()
-    metadata = data.prepare_metadata_for_export(image, feature)
+    cell = col.filter(ee.Filter.eq('id', feature_id)).first()
+    metadata = preprocessing.prepare_metadata_for_export(image, cell)
     metadata = {key: val.getInfo() for key, val in metadata.items()}
 
-    geom = feature.geometry(
-        ee.ErrorMargin(1, 'projected'),
-        data.get_default_projection()
-    )
-    coords = geom.centroid(1).getInfo()['coordinates']
+    request = build_request(cell, constants.EXPORT_PATCH_SIZE)
 
-    request = get_base_request()
-    offset_x, offset_y = get_offsets()
-    request['grid']['affineTransform']['translateX'] = coords[0] + offset_x
-    request['grid']['affineTransform']['translateY'] = coords[1] + offset_y
-
-    image_request = dict(request)
-    image_request['expression'] = image.unmask(0, sameFootprint=False)
+    image_request = {
+        'expression': image.unmask(0, sameFootprint=False,
+        **request
+    }
     np_image = np.load(io.BytesIO(ee.data.computePixels(image_request)))
 
-    label_request = dict(request)
-    label_request['expression'] = label.unmask(0, sameFootprint=False)
+    image_request = {
+        'expression': label.unmask(0, sameFootprint=False)
+        **request
+    }
     np_label = np.load(io.BytesIO(ee.data.computePixels(label_request)))
 
     return np_image, np_label, metadata
@@ -158,7 +132,7 @@ def serialize_tensor(image, label, metadata):
                 value=image[b].flatten()
             )
         )
-        for b in data.BANDS
+        for b in constants.BANDS
     }
 
     features['label'] = tf.train.Feature(
