@@ -77,6 +77,11 @@ EXPORT_PATCH_SIZE = 512
 PATCH_SIZE = 128
 OVERLAP = 8
 
+# this is necessary in order for every pixel to be represented exactly once in
+# the test dataset
+msg = "Model input size must perfectly divide patch export size."
+assert EXPORT_PATCH_SIZE % PATCH_SIZE == 0, msg
+
 HIGH_VOLUME_ENDPOINT = 'https://earthengine-highvolume.googleapis.com'
 MAX_REQUESTS = 20
 
