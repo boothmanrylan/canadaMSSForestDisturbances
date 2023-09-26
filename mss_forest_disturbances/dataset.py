@@ -5,10 +5,12 @@ import tensorflow as tf
 
 
 RNG = tf.random.Generator.from_seed(42, alg="philox")
-AUGMENTATION = tf.keras.Sequential([
-    tf.keras.layers.RandomFlip("horizontal_and_vertical"),
-    tf.keras.layers.RandomRotation(0.2, "reflect"),
-])
+AUGMENTATION = tf.keras.Sequential(
+    [
+        tf.keras.layers.RandomFlip("horizontal_and_vertical"),
+        tf.keras.layers.RandomRotation(0.2, "reflect"),
+    ]
+)
 
 
 def parse(
@@ -21,7 +23,7 @@ def parse(
     float_metadata=None,
     label_smoothing_matrix=None,
 ):
-    """ Parse a tfrecord example.
+    """Parse a tfrecord example.
 
     Args:
         example: Example
@@ -40,12 +42,9 @@ def parse(
         y: Tensor of labels (one hot encoded)
     """
     image_features = {
-        b: tf.io.FixedLenFeature(shape=(size, size), dtype=tf.float32)
-        for b in bands
+        b: tf.io.FixedLenFeature(shape=(size, size), dtype=tf.float32) for b in bands
     }
-    label_features = {
-        label: tf.io.FixedLenFeature(shape=(size, size), dtype=tf.int64)
-    }
+    label_features = {label: tf.io.FixedLenFeature(shape=(size, size), dtype=tf.int64)}
 
     x = tf.io.parse_single_example(example, image_features)
     x = tf.stack([x[b] for b in bands], axis=-1)
@@ -55,7 +54,7 @@ def parse(
     if label_smoothing_matrix is not None:
         y = tf.reshape(
             tf.gather(label_smoothing_matrix, tf.reshape(y, (-1,))),
-            (size, size, num_classes)
+            (size, size, num_classes),
         )
     else:
         y = tf.one_hot(y, num_classes)
@@ -71,9 +70,7 @@ def parse(
         integer_metadata_inputs = [
             tf.cast(metadata_inputs[m], tf.int64) for m in integer_metadata
         ]
-        float_metadata_inputs = [
-            metadata_inputs[m] for m in float_metadata
-        ]
+        float_metadata_inputs = [metadata_inputs[m] for m in float_metadata]
         metadata_inputs = integer_metadata_inputs + float_metadata_inputs
         x = (x, *metadata_inputs)
 
@@ -81,7 +78,7 @@ def parse(
 
 
 def non_overlapping_crop(x, y, size, include_metadata=False):
-    """ Crops x and y into a grid of patches with shape (size, size).
+    """Crops x and y into a grid of patches with shape (size, size).
 
     Args:
         x: Tensor or tuple if include_metadata is True
@@ -96,11 +93,9 @@ def non_overlapping_crop(x, y, size, include_metadata=False):
     initial_size = x.shape[0]
 
     def crop(tensor):
-        """ based on https://stackoverflow.com/a/31530106
-        """
+        """based on https://stackoverflow.com/a/31530106"""
         tensor = tf.reshape(
-            tensor,
-            (initial_size // size, size, initial_size // size, size, -1)
+            tensor, (initial_size // size, size, initial_size // size, size, -1)
         )
         cropped = tf.experimental.numpy.swapaxes(tensor, 1, 2)
 
@@ -110,10 +105,7 @@ def non_overlapping_crop(x, y, size, include_metadata=False):
         return tf.data.Dataset.from_tensor_slices(cropped)
 
     if include_metadata:
-        metadata = [
-            tf.data.Dataset.from_tensor_slices(m).repeat()
-            for m in x[1:]
-        ]
+        metadata = [tf.data.Dataset.from_tensor_slices(m).repeat() for m in x[1:]]
         x = x[0]
 
     x = crop(x)
@@ -126,7 +118,7 @@ def non_overlapping_crop(x, y, size, include_metadata=False):
 
 
 def _apply_fn_to_xy(x, y, fn, include_metadata=False):
-    """ Helper function to apply an identical random transform to x and y.
+    """Helper function to apply an identical random transform to x and y.
 
     Args:
         x: Tensor
@@ -167,7 +159,7 @@ def _apply_fn_to_xy(x, y, fn, include_metadata=False):
 
 
 def random_crop(x, y, size, seed, include_metadata=False):
-    """ Applies the same random crop to x and y.
+    """Applies the same random crop to x and y.
 
     Args:
         x: Tensor
@@ -201,7 +193,7 @@ def random_crop(x, y, size, seed, include_metadata=False):
 
 
 def random_crop_wrapper(x, y, size, include_metadata=False):
-    """ Generates random seed when called, calls random_crop with the seed
+    """Generates random seed when called, calls random_crop with the seed
 
     See random_crop()
 
@@ -220,7 +212,7 @@ def random_crop_wrapper(x, y, size, include_metadata=False):
 
 
 def apply_data_augmentation(x, y, include_metadata=False):
-    """ Applies the same random data augmentation to x and y.
+    """Applies the same random data augmentation to x and y.
 
     Args:
         x: Tensor
@@ -228,8 +220,10 @@ def apply_data_augmentation(x, y, include_metadata=False):
         include_metadata: bool, if True indicates that x contains an image as
             well as metadata.
     """
+
     def fn(xy):
         return AUGMENTATION(xy, training=True)
+
     return _apply_fn_to_xy(x, y, fn, include_metadata=include_metadata)
 
 
@@ -244,7 +238,7 @@ def build_dataset(
     batch_size=32,
     normalization_subset_size=100,
 ):
-    """ Builds a TFRecord dataset from files indicated by tfrecord_pattern.
+    """Builds a TFRecord dataset from files indicated by tfrecord_pattern.
 
     Args:
         tfrecord_pattern: str, unix style file pattern
@@ -270,8 +264,7 @@ def build_dataset(
     def interleave_fn(filename):
         raw_dataset = tf.data.TFRecordDataset(filename, compression_type="GZIP")
         parsed_dataset = raw_dataset.map(
-            lambda x: parse(x, **parse_options),
-            num_parallel_calls=1
+            lambda x: parse(x, **parse_options), num_parallel_calls=1
         )
         return parsed_dataset
 

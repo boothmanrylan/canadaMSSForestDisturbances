@@ -28,7 +28,7 @@ from . import constants
 
 
 def reduce_resolution(im):
-    """ Explicitly reduce the resolution of a 1/0 image from 30m Landsat data.
+    """Explicitly reduce the resolution of a 1/0 image from 30m Landsat data.
 
     Adapted from:
     https://developers.google.com/earth-engine/guides/resample#reduce_resolution
@@ -124,7 +124,7 @@ def get_basemap(year=constants.FIRST_LANDCOVER_YEAR, lookback=0):
 
 
 def get_previous_fire_map(year=constants.FIRST_DISTURBANCE_YEAR):
-    """ Get a map of all fire up to but not including year.
+    """Get a map of all fire up to but not including year.
 
     The map is based on the Canadian Forest Service's annual forest fire maps.
 
@@ -154,7 +154,7 @@ def get_fire_map(year=constants.FIRST_DISTURBANCE_YEAR):
 
 
 def get_previous_harvest_map(year=constants.FIRST_DISTURBANCE_YEAR):
-    """ Gets a map of all harvest up to but not including year.
+    """Gets a map of all harvest up to but not including year.
 
     The map is based on the Canadian Forest Service's annual harvest maps.
 
@@ -209,7 +209,7 @@ def get_disturbance_map(year=constants.FIRST_DISTURBANCE_YEAR):
 
 
 def get_disturbed_regions(year=constants.FIRST_DISTURBANCE_YEAR):
-    """ Returns a map of all disturbances for a given year and aoi.
+    """Returns a map of all disturbances for a given year and aoi.
 
     The result will be 1 wherever there was a disturbance and 0 otherwise.
     Disturbance type gets stripped. If you need disturbance type, use
@@ -227,7 +227,7 @@ def get_disturbed_regions(year=constants.FIRST_DISTURBANCE_YEAR):
 
 
 def bitwise_extract(image, from_bit, to_bit):
-    """ Helper method for extracting QA bit masks.
+    """Helper method for extracting QA bit masks.
 
     Code adapted from
     https://spatialthoughts.com/2021/08/19/qa-bands-bitmask-gee/
@@ -247,7 +247,7 @@ def bitwise_extract(image, from_bit, to_bit):
 
 
 def tm_clear_mask(image):
-    """ Mask cloud and cloud shadow pixels in Landsat TM images.
+    """Mask cloud and cloud shadow pixels in Landsat TM images.
 
     Cloud mask is based on the 6th bit of the QA_PIXEL band.
     Shadow mask is based on the 4th bit of the QA_PIXEL band.
@@ -258,14 +258,14 @@ def tm_clear_mask(image):
     Returns:
         ee.Image, the input image after applying the mask.
     """
-    qa = image.select('QA_PIXEL')
+    qa = image.select("QA_PIXEL")
     cloud_mask = bitwise_extract(qa, 6, 6).eq(1)
     shadow_mask = bitwise_extract(qa, 4, 4).neq(1)
     return image.updateMask(cloud_mask).updateMask(shadow_mask)
 
 
 def mss_clear_mask(image):
-    """ Cheap cloud and cloud shadow mask for Landsat MSS images.
+    """Cheap cloud and cloud shadow mask for Landsat MSS images.
 
     Unless efficiency is absolutely necessary msslib.applyMsscvm is a better
     option than this method.
@@ -276,13 +276,13 @@ def mss_clear_mask(image):
     Returns:
         ee.Image, the input image after appyting the mask.
     """
-    qa = image.select('QA_PIXEL')
+    qa = image.select("QA_PIXEL")
     mask = bitwise_extract(qa, 3, 3).eq(0)
     return image.updateMask(mask)
 
 
 def add_qa_mask(image):
-    """ Adds the QA_PIXEL mask as a band to the input image.
+    """Adds the QA_PIXEL mask as a band to the input image.
 
     Args:
         image: ee.Image originating from msslib.getCol
@@ -290,13 +290,13 @@ def add_qa_mask(image):
     Returns:
         ee.Image, the input image with an additional band called qa_mask
     """
-    qa = image.select('QA_PIXEL')
-    mask = bitwise_extract(qa, 3, 3).eq(0).rename('qa_mask')
+    qa = image.select("QA_PIXEL")
+    mask = bitwise_extract(qa, 3, 3).eq(0).rename("qa_mask")
     return image.addBands(mask)
 
 
 def get_tm():
-    """ Returns an image collection containing all TM images.
+    """Returns an image collection containing all TM images.
 
     Args:
         None
@@ -304,15 +304,15 @@ def get_tm():
     Returns:
         ee.ImageCollection
     """
-    TM4_T1 = ee.ImageCollection('LANDSAT/LT04/C02/T1_L2')
-    TM4_T2 = ee.ImageCollection('LANDSAT/LT04/C02/T2_L2')
-    TM5_T1 = ee.ImageCollection('LANDSAT/LT05/C02/T1_L2')
-    TM5_T2 = ee.ImageCollection('LANDSAT/LT05/C02/T2_L2')
+    TM4_T1 = ee.ImageCollection("LANDSAT/LT04/C02/T1_L2")
+    TM4_T2 = ee.ImageCollection("LANDSAT/LT04/C02/T2_L2")
+    TM5_T1 = ee.ImageCollection("LANDSAT/LT05/C02/T1_L2")
+    TM5_T2 = ee.ImageCollection("LANDSAT/LT05/C02/T2_L2")
     return TM4_T1.merge(TM4_T2).merge(TM5_T1).merge(TM5_T2)
 
 
 def process_tm(image):
-    """ Apply scaling factors, mask clouds, and calcualte NBR.
+    """Apply scaling factors, mask clouds, and calcualte NBR.
 
     See here for explanation of scaling factos
     https://developers.google.com/earth-engine/datasets/catalog/LANDSAT_LT04_C02_T1_L2
@@ -326,11 +326,11 @@ def process_tm(image):
     image = ee.Image(image)
 
     # apply scaling factors
-    optical = image.select('SR_B.').multiply(0.0000275).add(-0.2)
-    thermal = image.select('ST_B6').multiply(0.00341802).add(149.0)
+    optical = image.select("SR_B.").multiply(0.0000275).add(-0.2)
+    thermal = image.select("ST_B6").multiply(0.00341802).add(149.0)
     image = image.addBands(optical, None, True).addBands(thermal, None, True)
 
-    nbr = image.normalizedDifference(['SR_B4', 'SR_B7']).rename('NBR')
+    nbr = image.normalizedDifference(["SR_B4", "SR_B7"]).rename("NBR")
 
     return tm_clear_mask(image.addBands(nbr))
 
@@ -347,15 +347,11 @@ def get_coincident_tm(image):
     overlap_percentage = intersection_area.divide(aoi.area(1000))
 
     use_tm = overlap_percentage.gte(0.99)
-    return ee.Algorithms.If(
-        use_tm,
-        col.mosaic(),
-        None
-    )
+    return ee.Algorithms.If(use_tm, col.mosaic(), None)
 
 
 def get_disturbance_mask(image, median_tca, median_nbr):
-    """ Returns annual disturbance masks after thresholding the image.
+    """Returns annual disturbance masks after thresholding the image.
 
     The threshold is based on the NBR of the coincident TM image if one exists,
     otherwise the threshold is based on the TCA of the given image.
@@ -370,15 +366,17 @@ def get_disturbance_mask(image, median_tca, median_nbr):
     """
     coincident_tm = get_coincident_tm(image)
 
-    return ee.Image(ee.Algorithms.If(
-        coincident_tm,
-        process_tm(coincident_tm).select('NBR').lte(median_nbr),
-        mss_clear_mask(msslib.addTc(image)).select('tca').lte(median_tca)
-    ))
+    return ee.Image(
+        ee.Algorithms.If(
+            coincident_tm,
+            process_tm(coincident_tm).select("NBR").lte(median_nbr),
+            mss_clear_mask(msslib.addTc(image)).select("tca").lte(median_tca),
+        )
+    )
 
 
 def preprocess(image):
-    """ Applies preprocessing to MSS image to prepare for cnn.
+    """Applies preprocessing to MSS image to prepare for cnn.
 
     Args:
         image: ee.Image originating from msslib.getCol
@@ -435,7 +433,7 @@ def label_image(image, fire_lookback=3, harvest_lookback=10):
     Returns:
         an ee.Image with one integer band containing the class of each pixel.
     """
-    year = image.getNumber('year')
+    year = image.getNumber("year")
 
     fire_lookback = year.subtract(fire_lookback)
     harvest_lookback = year.subtract(harvest_lookback)
@@ -459,19 +457,22 @@ def label_image(image, fire_lookback=3, harvest_lookback=10):
     base = base.blend(prior_harvest).blend(prior_fire)
 
     # get the median TCA for the image region
-    tca_median = msslib.getCol(
-        aoi=image.geometry(),
-        yearRange=[constants.FIRST_MSS_YEAR, constants.LAST_MSS_YEAR],
-        doyRange=constants.DOY_RANGE,
-        maxCloudCover=20
-    ).map(preprocess).select('tca').median()
+    tca_median = (
+        msslib.getCol(
+            aoi=image.geometry(),
+            yearRange=[constants.FIRST_MSS_YEAR, constants.LAST_MSS_YEAR],
+            doyRange=constants.DOY_RANGE,
+            maxCloudCover=20,
+        )
+        .map(preprocess)
+        .select("tca")
+        .median()
+    )
 
     # get the median Thematic Mapper NBR for the image region
     tm_col = get_tm().filterBounds(image.geometry())
-    tm_col = tm_col.filter(ee.Filter.lte('CLOUD_COVER', 20))
-    tm_col = tm_col.filter(
-        ee.Filter.calendarRange(*constants.DOY_RANGE, "day_of_year")
-    )
+    tm_col = tm_col.filter(ee.Filter.lte("CLOUD_COVER", 20))
+    tm_col = tm_col.filter(ee.Filter.calendarRange(*constants.DOY_RANGE, "day_of_year"))
     nbr_median = tm_col.map(process_tm).select("NBR").median()
 
     # compute the mask for disturbances within the current year to account for
@@ -485,7 +486,7 @@ def label_image(image, fire_lookback=3, harvest_lookback=10):
     harvest = harvest.add(6)
 
     # compute the cloud and cloud shadow regions
-    occlusion = msslib.addMsscvm(image, 20).select('msscvm').selfMask()
+    occlusion = msslib.addMsscvm(image, 20).select("msscvm").selfMask()
     occlusion = occlusion.add(7)
 
     label = base.blend(harvest).blend(fire).blend(occlusion)
@@ -493,7 +494,7 @@ def label_image(image, fire_lookback=3, harvest_lookback=10):
 
 
 def add_label(image, median_tca, median_nbr, *args, **kwargs):
-    """ Helper function to add result of label_image as a band to the input.
+    """Helper function to add result of label_image as a band to the input.
 
     See label_image for a more complete description.
 
@@ -515,7 +516,7 @@ def add_label(image, median_tca, median_nbr, *args, **kwargs):
 
 
 def get_lookback_median(image, lookback=3, max_cloud_cover=20):
-    """ Gets a median image from lookback prior years for given image.
+    """Gets a median image from lookback prior years for given image.
 
     Args:
         image: ee.Image,
@@ -527,17 +528,21 @@ def get_lookback_median(image, lookback=3, max_cloud_cover=20):
         ee.Image
     """
     year = image.date().get("year")
-    col = msslib.getCol(
-        aoi=image.geometry(),
-        yearRange=[year.subtract(lookback), year.subtract(1)],
-        doyRange=constants.DOY_RANGE,
-        maxCloudCover=max_cloud_cover,
-    ).map(preprocess).map(mss_clear_mask)
+    col = (
+        msslib.getCol(
+            aoi=image.geometry(),
+            yearRange=[year.subtract(lookback), year.subtract(1)],
+            doyRange=constants.DOY_RANGE,
+            maxCloudCover=max_cloud_cover,
+        )
+        .map(preprocess)
+        .map(mss_clear_mask)
+    )
     return col.median().regexpRename("(.*)", "historical_$1", False)
 
 
 def prepare_image_for_export(image):
-    """ Preprocess image, adds historical bands, and calculates image label.
+    """Preprocess image, adds historical bands, and calculates image label.
 
     Args:
         image: ee.Image originating from msslib.getCol
@@ -551,8 +556,7 @@ def prepare_image_for_export(image):
 
     image = image.addBands(historical_bands)
     types = ee.Dictionary.fromLists(
-        image.bandNames(),
-        ee.List.repeat("float", image.bandNames().size())
+        image.bandNames(), ee.List.repeat("float", image.bandNames().size())
     )
     image = image.cast(types)
     image = image.select(constants.BANDS)
@@ -569,9 +573,9 @@ def prepare_metadata_for_export(image, cell):
     # shift by 1 for leap years
     remapped_doy = doy.subtract(constants.DOY_RANGE[0] - 1)
 
-    ecozone = cell.get('ecozone')
+    ecozone = cell.get("ecozone")
     ecozones = ee.FeatureCollection(constants.ECOZONES)
-    all_ecozone_ids = ecozones.aggregate_array('ECOZONE_ID').distinct()
+    all_ecozone_ids = ecozones.aggregate_array("ECOZONE_ID").distinct()
     remapped_ecozone = all_ecozone_ids.indexOf(ecozone)
 
     image_centroid = image.geometry().centroid(1)
@@ -587,7 +591,7 @@ def prepare_metadata_for_export(image, cell):
 
 
 def get_label(year):
-    """ Create target labelling for the given year and aoi.
+    """Create target labelling for the given year and aoi.
 
     Pixels are labelled as forest, non-forest, burn, harvest, or water. Forest,
     non-forest, water is based on the Canada Forested Landcover VLCE2 dataset.
@@ -610,7 +614,7 @@ def get_label(year):
 
 
 def normalize_tca(image):
-    """ Normalized tca values to ~[0, 1].
+    """Normalized tca values to ~[0, 1].
 
     Tasseled Cap Angle is defined in msslib as:
         atan(greeness / brightness) * (180 / pi)
@@ -623,13 +627,13 @@ def normalize_tca(image):
     Returns:
         ee.Image
     """
-    tca = ee.Image(image).select(['tca'])
+    tca = ee.Image(image).select(["tca"])
     tca = tca.divide(90)
-    return image.addBands(tca, ['tca'], True)
+    return image.addBands(tca, ["tca"], True)
 
 
 def get_dem():
-    """ Gets a global digital elevation model.
+    """Gets a global digital elevation model.
 
     The DEM is returned in the default projection of this project.
 
@@ -641,15 +645,15 @@ def get_dem():
     Returns:
         ee.Image
     """
-    aw3d30 = ee.Image('JAXA/ALOS/AW3D30/V2_2').select('AVE_DSM').rename('dem')
-    gmted = ee.Image('USGS/GMTED2010').rename('dem')
+    aw3d30 = ee.Image("JAXA/ALOS/AW3D30/V2_2").select("AVE_DSM").rename("dem")
+    gmted = ee.Image("USGS/GMTED2010").rename("dem")
     dem = ee.ImageCollection([gmted, aw3d30]).mosaic()
     normalized_dem = dem.divide(constants.MAX_ELEV)
     return normalized_dem.reproject(constants.get_default_projection())
 
 
 def sample_image(image, points_per_class=2, num_classes=9):
-    """ Given an image return a stratified sample of points from it.
+    """Given an image return a stratified sample of points from it.
 
     Args:
         image: ee.Image to sample points from.
@@ -662,31 +666,28 @@ def sample_image(image, points_per_class=2, num_classes=9):
         ee.FeatureCollection, one feature per point, each feature as one
             property per band containing the band value at the point.
     """
+
     def _sample(im):
         return im.sample(
             region=im.geometry(),
             scale=constants.SCALE,
             numPixels=1000 * points_per_class,
-            dropNulls=True
+            dropNulls=True,
         ).limit(points_per_class)
 
-    label = image.select('label')
-    classes = ee.List.sequence(0, num_classes - 1).map(
-        lambda x: ee.Image.constant(x)
-    )
-    class_images = ee.ImageCollection(classes.map(
-        lambda x: image.updateMask(label.eq(x)))
+    label = image.select("label")
+    classes = ee.List.sequence(0, num_classes - 1).map(lambda x: ee.Image.constant(x))
+    class_images = ee.ImageCollection(
+        classes.map(lambda x: image.updateMask(label.eq(x)))
     )
     class_samples = class_images.map(_sample)
     samples = class_samples.flatten()
-    samples = samples.map(
-        lambda x: x.set('image', image.get('LANDSAT_SCENE_ID'))
-    )
+    samples = samples.map(lambda x: x.set("image", image.get("LANDSAT_SCENE_ID")))
     return samples
 
 
 def sample_points(cell):
-    """ Given a grid cell create a dataset of labeled points to train a RF.
+    """Given a grid cell create a dataset of labeled points to train a RF.
 
     Samples points from each image that overlaps with the grid during the year
     the grid was sampled from. Returns the flattened collection.
@@ -698,20 +699,18 @@ def sample_points(cell):
         ee.FeatureCollection containing one feature per point that was samples
         where each feature has one property per band.
     """
-    year = cell.getNumber('year')
+    year = cell.getNumber("year")
     cell = cell.geometry()
 
     col = msslib.getCol(
         aoi=cell,
         yearRange=[year, year],
         doyRange=constants.DOY_RANGE,
-        maxCloudCover=100
+        maxCloudCover=100,
     ).map(msslib.calcToa)
 
     col = col.map(add_label).map(lambda im: im.clip(cell))
 
     samples = col.map(sample_image).flatten()
-    samples = samples.map(
-        lambda x: x.set('year', year)
-    )
+    samples = samples.map(lambda x: x.set("year", year))
     return samples

@@ -5,7 +5,7 @@ import tensorflow as tf
 
 
 def build_confusion_matrix(model, parsed_dataset, num_classes, subset=25):
-    """ Run dataset through model and return a confusion matrix of the results.
+    """Run dataset through model and return a confusion matrix of the results.
 
     **NOTE** In remote sensing the standard is to put the True/Reference values
     as the columns and the Predicted/Map values as the rows, but in ML the

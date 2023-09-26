@@ -5,10 +5,11 @@ import tensorflow as tf
 
 
 class TemporalFusion(tf.keras.layers.Layer):
-    """ Change detection layer.
+    """Change detection layer.
 
     Based on Late Fusion from Matetto et al. 2021 10.1109/LGRS.2020.298407
     """
+
     def __init__(self, filters, **kwargs):
         """
         filters: int, the number of filters in the Conv2D layer
@@ -23,7 +24,7 @@ class TemporalFusion(tf.keras.layers.Layer):
         )
 
     def call(self, input1, input2):
-        """ Forward pass.
+        """Forward pass.
 
         Args:
             input1: 4D tensor
@@ -39,8 +40,8 @@ class TemporalFusion(tf.keras.layers.Layer):
 
 
 class DownSample(tf.keras.layers.Layer):
-    """ Down sample layer used in UNet.
-    """
+    """Down sample layer used in UNet."""
+
     def __init__(self, filters, kernel_size, dilation_rate, **kwargs):
         super().__init__(**kwargs)
         """
@@ -59,7 +60,7 @@ class DownSample(tf.keras.layers.Layer):
         self.batch_norm = tf.keras.layers.BatchNormalization()
 
     def call(self, x):
-        """ Forward pass.
+        """Forward pass.
 
         Args:
             x: 4D tensor
@@ -74,8 +75,8 @@ class DownSample(tf.keras.layers.Layer):
 
 
 class UpSample(tf.keras.layers.Layer):
-    """ Up sample layer used in UNet.
-    """
+    """Up sample layer used in UNet."""
+
     def __init__(self, filters, kernel_size, **kwargs):
         """
         filters: int, passed to Conv2DTranspose
@@ -92,7 +93,7 @@ class UpSample(tf.keras.layers.Layer):
         self.batch_norm = tf.keras.layers.BatchNormalization()
 
     def call(self, x):
-        """ Forward pass.
+        """Forward pass.
 
         Args:
             x: 4D tensor
@@ -107,17 +108,13 @@ class UpSample(tf.keras.layers.Layer):
 
 
 class MetadataBias(tf.keras.layers.Layer):
-    """ Layer to include scalar metadata in a fully convolutional network.
+    """Layer to include scalar metadata in a fully convolutional network.
 
     Based on LSENet from Xie, Guo, and Dong 2022 10.1109/TGRS.2022.3176635
     """
+
     def __init__(
-        self,
-        num_int_inputs,
-        max_int_inputs,
-        num_float_inputs,
-        num_outputs,
-        **kwargs
+        self, num_int_inputs, max_int_inputs, num_float_inputs, num_outputs, **kwargs
     ):
         """
         num_int_inputs: int, how many integer metadata inputs there are.
@@ -151,7 +148,7 @@ class MetadataBias(tf.keras.layers.Layer):
         self.dense2 = tf.keras.layers.Dense(self.num_outputs)
 
     def call(self, x, *metadata):
-        """ Forward pass.
+        """Forward pass.
 
         Embeds each metadata value individual using a TF Embedding layer for
         integer values and a Dense layer for float values. Concatenates the
@@ -194,13 +191,14 @@ class MetadataBias(tf.keras.layers.Layer):
 
 
 class Preprocessing(tf.keras.layers.Layer):
-    """ Layer to convert an input features dict of bands into an image.
+    """Layer to convert an input features dict of bands into an image.
 
     Based on:
     https://github.com/google/earthengine-community/blob/master/guides/linked/Earth_Engine_TensorFlow_Vertex_AI.ipynb
 
     Necessary for hosting a model in Google cloud and accessing it through GEE
     """
+
     def __init__(self, band_names, metadata=None, **kwargs):
         """
         band_names: list[str], the names of all input bands
@@ -212,7 +210,7 @@ class Preprocessing(tf.keras.layers.Layer):
         self.metadata = metadata
 
     def call(self, features_dict):
-        """ Forward pass
+        """Forward pass
 
         Converts a dict of Tensors with shape (None, 1, 1, 1) to one Tensor
         with shape (None, 1, 1, P)
@@ -224,9 +222,7 @@ class Preprocessing(tf.keras.layers.Layer):
             Tensor or tuple of (Tensor, *metadata) if include_metadata is True
         """
         image = tf.concat(
-            [features_dict[b] for b in self.band_names],
-            axis=-1,
-            name='image'
+            [features_dict[b] for b in self.band_names], axis=-1, name="image"
         )
 
         if self.metadata is not None:
@@ -236,20 +232,20 @@ class Preprocessing(tf.keras.layers.Layer):
             return image
 
     def get_config(self):
-        """ Gets config from super()
-        """
+        """Gets config from super()"""
         config = super().get_config()
         return config
 
 
 class WrappedModel(tf.keras.Model):
-    """ Wraps an input model with a Preprocessing layer.
+    """Wraps an input model with a Preprocessing layer.
 
     Based on:
     https://github.com/google/earthengine-community/blob/master/guides/linked/Earth_Engine_TensorFlow_Vertex_AI.ipynb
 
     Necessary for hosting a model in Google cloud and accessing it through GEE
     """
+
     def __init__(self, model, band_names, metadata, **kwargs):
         """
         model: tf.keras.Model
@@ -262,7 +258,7 @@ class WrappedModel(tf.keras.Model):
         self.model = model
 
     def call(self, features_dict):
-        """ Passes features dict through Preprocessing then through model.
+        """Passes features dict through Preprocessing then through model.
 
         Args:
             features_dict: dict
@@ -274,20 +270,20 @@ class WrappedModel(tf.keras.Model):
         return self.model(x)
 
     def get_config(self):
-        """ Gets config from super()
-        """
+        """Gets config from super()"""
         config = super().get_config()
         return config
 
 
 class DeSerializeInput(tf.keras.layers.Layer):
-    """ Decodes base64 input and preps it for input to a model.
+    """Decodes base64 input and preps it for input to a model.
 
     Based on:
     https://github.com/google/earthengine-community/blob/master/guides/linked/Earth_Engine_TensorFlow_Vertex_AI.ipynb
 
     Necessary for hosting a model in Google cloud and accessing it through GEE
     """
+
     def __init__(self, band_names, integer_metadata, float_metadata, **kwargs):
         """
         band_names: list[str], the name of all input bands
@@ -300,7 +296,7 @@ class DeSerializeInput(tf.keras.layers.Layer):
         self.integer_metadata = integer_metadata
 
     def call(self, inputs_dict):
-        """ Converts input base64 string to dict mapping band names -> Tensor.
+        """Converts input base64 string to dict mapping band names -> Tensor.
 
         Args:
             inputs_dict: dictionary mapping input names to encoded tf.strings
@@ -308,6 +304,7 @@ class DeSerializeInput(tf.keras.layers.Layer):
         Returns:
             dict mapping input names to float32 Tensors
         """
+
         def get_output_type(key):
             if key in self.integer_metadata:
                 return tf.int64
@@ -326,19 +323,19 @@ class DeSerializeInput(tf.keras.layers.Layer):
         return serialized_dict
 
     def get_config(self):
-        """ Gets config from super()
-        """
+        """Gets config from super()"""
         config = super().get_config()
         return config
 
 
 class ReSerializeOutput(tf.keras.layers.Layer):
-    """ Encode model output as base64 and preps it to be interpreted by GEE.
+    """Encode model output as base64 and preps it to be interpreted by GEE.
     Based on:
     https://github.com/google/earthengine-community/blob/master/guides/linked/Earth_Engine_TensorFlow_Vertex_AI.ipynb
 
     Necessary for hosting a model in Google cloud and accessing it through GEE
     """
+
     def __init__(self, **kwargs):
         """
         kwargs: dict, passed to supe().__init__
@@ -346,7 +343,7 @@ class ReSerializeOutput(tf.keras.layers.Layer):
         super().__init__(**kwargs)
 
     def call(self, output_tensor):
-        """ Encodes modle output as base64 string.
+        """Encodes modle output as base64 string.
 
         Args:
             output_tensor: Tensor, output from model.
@@ -361,8 +358,7 @@ class ReSerializeOutput(tf.keras.layers.Layer):
         )
 
     def get_config(self):
-        """ Gets config from super()
-        """
+        """Gets config from super()"""
         config = super().get_config()
         return config
 
@@ -384,7 +380,7 @@ def build_model(
     max_integer_metadata_values=None,
     float_metadata=None,
 ):
-    """ Builds and returns a Spatio Temporal Unet Model.
+    """Builds and returns a Spatio Temporal Unet Model.
 
     Does not compile the model.
 
@@ -504,7 +500,7 @@ def train_model(
     checkpoint_path=None,
     class_weight=None,
 ):
-    """ Compiles and trains a model on the given dataset.
+    """Compiles and trains a model on the given dataset.
 
     Args:
         model: tf.keras.Model
@@ -550,9 +546,9 @@ def prepare_model_for_hosting(
     integer_metadata,
     float_metadata,
     model_path,
-    checkpoint_path=None
+    checkpoint_path=None,
 ):
-    """ Prepares a model to be hosted with VertexAI and accessed through GEE.
+    """Prepares a model to be hosted with VertexAI and accessed through GEE.
 
     Args:
         model: tf.keras.Model, e.g., output from build_model()
@@ -582,7 +578,7 @@ def prepare_model_for_hosting(
     reserializer = ReSerializeOutput()
 
     serialized_inputs = {
-        x: tf.keras.Input(shape=[], dtype='string', name=x)
+        x: tf.keras.Input(shape=[], dtype="string", name=x)
         for x in band_names + integer_metadata + float_metadata
     }
 

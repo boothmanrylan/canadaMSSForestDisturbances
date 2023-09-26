@@ -15,7 +15,7 @@ NORM = BoundaryNorm(np.arange(constants.NUM_CLASSES + 1), constants.NUM_CLASSES)
 
 
 def get_vmin_vmax(arr):
-    """ Compute reasonable vmin and vmax to display arr.
+    """Compute reasonable vmin and vmax to display arr.
 
     Args:
         arr: ndarray, image data
@@ -39,7 +39,7 @@ def visualize(
     vmin=None,
     vmax=None,
 ):
-    """ Display model inputs and corresponding outputs.
+    """Display model inputs and corresponding outputs.
 
     Args:
         parsed_dataset: tf.data.Dataset
@@ -110,16 +110,14 @@ def visualize(
 
 
 def plot_x(x, axes, i, j, rgb_indices):
-    """ Helper function for crop_visualizer and data_augmentation_visualizer
-    """
+    """Helper function for crop_visualizer and data_augmentation_visualizer"""
     x = tf.gather(x, rgb_indices, axis=-1)
     vmin, vmax = get_vmin_vmax(x)
     axes[i, j].imshow(x, vmin=vmin, vmax=vmax)
 
 
 def plot_y(y, axes, i, j):
-    """ Helper function for crop_visualizer and data_augmentation_visualizer
-    """
+    """Helper function for crop_visualizer and data_augmentation_visualizer"""
     y = np.squeeze(np.argmax(y, axis=-1))
     axes[i, j].imshow(y, cmap=CMAP, norm=NORM)
 
@@ -132,7 +130,7 @@ def crop_visualizer(
     random_crop=True,
     rgb_indices=None,
 ):
-    """ Method to verify that non_overlapping_crop and random_crop function.
+    """Method to verify that non_overlapping_crop and random_crop function.
 
     Args:
         tfrecord_pattern: str, unix style file pattern to create a dataset from
@@ -154,7 +152,7 @@ def crop_visualizer(
     # create our own dataset without using dataset.build_dataset() because we
     # don't want it to be already cropped
     files = tf.data.Dataset.list_files(tfrecord_pattern, shuffle=False)
-    raw_dataset = tf.data.TFRecordDataset(files, compression_type='GZIP')
+    raw_dataset = tf.data.TFRecordDataset(files, compression_type="GZIP")
     parsed_dataset = raw_dataset.map(lambda x: dataset.parse(x, **parse_options))
 
     size = 6
@@ -165,7 +163,7 @@ def crop_visualizer(
         cropped_dataset = cropped_dataset.take(count)
         fig, axes = plt.subplots(count, 4, figsize=(4 * size, count * size))
     else:
-        num_blocks = (parse_options['size'] // crop_size) ** 2
+        num_blocks = (parse_options["size"] // crop_size) ** 2
         cropped_dataset = parsed_dataset.flat_map(dataset.non_overlapping_crop)
         cropped_dataset = cropped_dataset.take(num_blocks * count)
         cols = 2 + (2 * num_blocks)
@@ -192,7 +190,7 @@ def data_augmentation_visualizer(
     count=10,
     rgb_indices=None,
 ):
-    """ Method to verify that data augmentation is working properly.
+    """Method to verify that data augmentation is working properly.
 
     Args:
         tfrecord_pattern: str, unix style file pattern to create a dataset from
@@ -212,11 +210,11 @@ def data_augmentation_visualizer(
     # create our own dataset without using dataset.build_dataset() because we
     # don't want it to be already have been augmented
     files = tf.data.Dataset.list_files(tfrecord_pattern, shuffle=False)
-    raw_dataset = tf.data.TFRecordDataset(files, compression_type='GZIP')
+    raw_dataset = tf.data.TFRecordDataset(files, compression_type="GZIP")
     parsed_dataset = raw_dataset.map(lambda x: dataset.parse(x, **parse_options))
     parsed_dataset = parsed_dataset.take(count)
 
-    include_metadata = parse_options['float_metadata'] is not None
+    include_metadata = parse_options["float_metadata"] is not None
     augmented_dataset = parsed_dataset.map(
         lambda x, y: dataset.apply_data_augmentation(x, y, include_metadata)
     )

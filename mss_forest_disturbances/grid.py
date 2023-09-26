@@ -11,7 +11,7 @@ from . import preprocessing
 
 
 def build_grid(aoi, chip_size, overlap_size=0):
-    """ Creates a tiled grid that covers aoi.
+    """Creates a tiled grid that covers aoi.
 
     Each grid cell will be a square that is chip_size pixels wide in the
     default projection and overlaps with its neighbours by overlap_size pixels.
@@ -47,7 +47,7 @@ def build_grid(aoi, chip_size, overlap_size=0):
 
 
 def set_ecozone(feat):
-    """ Sets the ecozone property of the given feature.
+    """Sets the ecozone property of the given feature.
 
     If the feature overlaps multiply ecozones ties are broken using 'first'
 
@@ -62,12 +62,12 @@ def set_ecozone(feat):
     ecozones = ee.FeatureCollection(constants.ECOZONES)
     overlapping_ecozones = ecozones.filterBounds(geom)
     first_overlapping_ecozone = overlapping_ecozones.first()
-    ecozone_id = first_overlapping_ecozone.get('ECOZONE_ID')
-    return feat.set('ecozone', ecozone_id)
+    ecozone_id = first_overlapping_ecozone.get("ECOZONE_ID")
+    return feat.set("ecozone", ecozone_id)
 
 
 def build_land_covering_grid(aoi, chip_size, overlap_size=0):
-    """ Creates a tiled grid that covers aoi, excluding water dominant tiles.
+    """Creates a tiled grid that covers aoi, excluding water dominant tiles.
 
     See build_grid()
 
@@ -79,6 +79,7 @@ def build_land_covering_grid(aoi, chip_size, overlap_size=0):
     Returns:
         ee.FeatureCollection
     """
+
     def get_landcover(year):
         # TODO: why does this landcover need to apply a watermask?
         water_mask = preprocessing.get_water_mask(year)
@@ -87,10 +88,7 @@ def build_land_covering_grid(aoi, chip_size, overlap_size=0):
         )
         return water_mask.And(land_cover)
 
-    years = ee.List.sequence(
-        constants.FIRST_LANDCOVER_YEAR,
-        constants.LAST_MSS_YEAR
-    )
+    years = ee.List.sequence(constants.FIRST_LANDCOVER_YEAR, constants.LAST_MSS_YEAR)
     annual_landcover = ee.ImageCollection(years.map(get_landcover))
     landcover = annual_landcover.reduce(ee.Reducer.sum()).gt(0).selfMask()
     landcover = landcover.rename("landcover")
@@ -101,11 +99,10 @@ def build_land_covering_grid(aoi, chip_size, overlap_size=0):
         lambda x: x.set(
             "landcover",
             landcover.sample(
-                x.geometry(),
-                scale=constants.SCALE,
-                numPixels=2500,
-                dropNulls=False
-            ).aggregate_array("landcover").size(),
+                x.geometry(), scale=constants.SCALE, numPixels=2500, dropNulls=False
+            )
+            .aggregate_array("landcover")
+            .size(),
         )
     )
     grid = grid.map(set_ecozone)
@@ -114,7 +111,7 @@ def build_land_covering_grid(aoi, chip_size, overlap_size=0):
 
 
 def add_disturbance_counts(grid, year):
-    """ Estimates total harvest/fire in each cell of grid during year.
+    """Estimates total harvest/fire in each cell of grid during year.
 
     Args:
         grid: ee.FeatureCollection originating from build_grid()
@@ -132,19 +129,26 @@ def add_disturbance_counts(grid, year):
     harvest = preprocessing.get_harvest_map(year).selfMask().rename("harvest")
     grid = grid.map(
         lambda x: x.set(
-            "harvest", harvest.sample(
+            "harvest",
+            harvest.sample(
                 x.geometry(),
                 scale=constants.SCALE,
                 numPixels=2500,
                 dropNulls=False,
-            ).aggregate_array("harvest").size(),
-            "fire", fire.sample(
+            )
+            .aggregate_array("harvest")
+            .size(),
+            "fire",
+            fire.sample(
                 x.geometry(),
                 scale=constants.SCALE,
                 numPixels=2500,
                 dropNulls=False,
-            ).aggregate_array("fire").size(),
-            "year", year
+            )
+            .aggregate_array("fire")
+            .size(),
+            "year",
+            year,
         )
     )
     grid = grid.map(set_ecozone)
@@ -153,7 +157,7 @@ def add_disturbance_counts(grid, year):
 
 
 def _get_top_property(grid, prop, count):
-    """ Return count size subset of grid after sorting (descending) by prop.
+    """Return count size subset of grid after sorting (descending) by prop.
 
     Helper function for get_top_fire and get_top_harvest
 
@@ -167,14 +171,12 @@ def _get_top_property(grid, prop, count):
     """
     grid = grid.filter(ee.Filter.gt(prop, 0))
     output_grid = grid.limit(count, prop, False)
-    output_grid = output_grid.map(
-        lambda elem: elem.set("disturbance_type", prop)
-    )
+    output_grid = output_grid.map(lambda elem: elem.set("disturbance_type", prop))
     return output_grid
 
 
 def get_top_fire(grid, count):
-    """ Return the count cells in grid with the most fire.
+    """Return the count cells in grid with the most fire.
 
     Args:
         grid: ee.FeatureCollection originating from add_disturbance_counts
@@ -187,7 +189,7 @@ def get_top_fire(grid, count):
 
 
 def get_top_harvest(grid, count):
-    """" Return the count cells in grid with the most harvest.
+    """ " Return the count cells in grid with the most harvest.
 
     Args:
         grid: ee.FeatureCollection originating from add_disturbance_counts
@@ -200,7 +202,7 @@ def get_top_harvest(grid, count):
 
 
 def get_random_undisturbed(grid, count):
-    """ Return a random count cells from grid that are undisturbed.
+    """Return a random count cells from grid that are undisturbed.
 
     Args:
         grid: ee.FeatureCollection originating from add_disturbance_counts
@@ -209,20 +211,17 @@ def get_random_undisturbed(grid, count):
     Returns:
         ee.FeatureCollection, subset of grid.
     """
-    grid = grid.filter(ee.Filter.And(
-        ee.Filter.eq("fire", 0),
-        ee.Filter.eq("harvest", 0)
-    ))
+    grid = grid.filter(
+        ee.Filter.And(ee.Filter.eq("fire", 0), ee.Filter.eq("harvest", 0))
+    )
     grid = grid.randomColumn("random", 42)
     grid = grid.limit(count, "random")
-    grid = grid.map(
-        lambda elem: elem.set("disturbance_type", "undisturbed")
-    )
+    grid = grid.map(lambda elem: elem.set("disturbance_type", "undisturbed"))
     return grid
 
 
 def train_test_val_split(grid, trainp, testp, valp):
-    """ Randomly splits grid into 3 groups.
+    """Randomly splits grid into 3 groups.
 
     trianp, testp, and valp must sum to 1.0
 
@@ -242,20 +241,14 @@ def train_test_val_split(grid, trainp, testp, valp):
 
     grid = grid.randomColumn("train_test_val", 111).sort("train_test_val")
 
-    train_grid = ee.FeatureCollection(
-        grid.toList(train_count, 0)
-    )
-    test_grid = ee.FeatureCollection(
-        grid.toList(test_count, train_count)
-    )
-    val_grid = ee.FeatureCollection(
-        grid.toList(val_count, train_count.add(test_count))
-    )
+    train_grid = ee.FeatureCollection(grid.toList(train_count, 0))
+    test_grid = ee.FeatureCollection(grid.toList(test_count, train_count))
+    val_grid = ee.FeatureCollection(grid.toList(val_count, train_count.add(test_count)))
     return train_grid, test_grid, val_grid
 
 
 def set_image_overlap(cell):
-    """ Helper function for sample_cells to drop cells with no images.
+    """Helper function for sample_cells to drop cells with no images.
 
     Args:
         cell: ee.Feature originating from add_disturbance_counts
@@ -269,22 +262,16 @@ def set_image_overlap(cell):
         aoi=cell.geometry().centroid(1),
         yearRange=[year, year],
         doyRange=constants.DOY_RANGE,
-        maxCloudCover=100
+        maxCloudCover=100,
     )
 
     return cell.set("num_overlapping_images", images.size())
 
 
 def sample_cells(
-    grid,
-    fire_count,
-    harvest_count,
-    undisturbed_count,
-    trainp,
-    testp,
-    valp
+    grid, fire_count, harvest_count, undisturbed_count, trainp, testp, valp
 ):
-    """ Splits grid by disturbance type and then randomly into train/test/val.
+    """Splits grid by disturbance type and then randomly into train/test/val.
 
     Args:
         grid: ee.FeatureCollection originating from add_disturbance_counts
@@ -307,14 +294,14 @@ def sample_cells(
     oversample = 2
     fire_set = get_top_fire(grid, int(oversample * fire_count))
     harvest_set = get_top_harvest(grid, int(oversample * harvest_count))
-    undisturbed_set = get_random_undisturbed(
-        grid, int(oversample * undisturbed_count)
-    )
+    undisturbed_set = get_random_undisturbed(grid, int(oversample * undisturbed_count))
 
     # merge sets to drop duplicates
-    grouped_set = ee.FeatureCollection(
-        [fire_set, harvest_set, undisturbed_set]
-    ).flatten().distinct('id')
+    grouped_set = (
+        ee.FeatureCollection([fire_set, harvest_set, undisturbed_set])
+        .flatten()
+        .distinct("id")
+    )
 
     # drop cells with no overlapping images
     grouped_set = grouped_set.map(set_image_overlap)
@@ -324,9 +311,7 @@ def sample_cells(
     fire_set = grouped_set.filter(ee.Filter.eq("disturbance_type", "fire"))
     fire_set = fire_set.limit(fire_count, "fire", False)
 
-    harvest_set = grouped_set.filter(
-        ee.Filter.eq("disturbance_type", "harvest")
-    )
+    harvest_set = grouped_set.filter(ee.Filter.eq("disturbance_type", "harvest"))
     harvest_set = harvest_set.limit(harvest_count, "harvest", False)
 
     undisturbed_set = grouped_set.filter(
@@ -342,16 +327,13 @@ def sample_cells(
 
     # group train/test/val splits from each disturbance type
     outputs = [
-        ee.FeatureCollection([
-            fire_sets[x], harvest_sets[x], undisturbed_sets[x]
-        ]).flatten()
+        ee.FeatureCollection(
+            [fire_sets[x], harvest_sets[x], undisturbed_sets[x]]
+        ).flatten()
         for x in [0, 1, 2]
     ]
 
     # shuffle each group so that disturbance types are intermingled
-    outputs = [
-        x.randomColumn("shuffle", 1001).sort("shuffle")
-        for x in outputs
-    ]
+    outputs = [x.randomColumn("shuffle", 1001).sort("shuffle") for x in outputs]
 
     return outputs
