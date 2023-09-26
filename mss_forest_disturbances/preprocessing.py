@@ -20,12 +20,12 @@ landcover: ee.ImageCollection('projects/sat-io/open-datasets/CA_FOREST_LC_VLCE2'
 forest fire: ee.Image('users/boothmanrylan/NTEMSCanada/forest_fire_1985-2020')
 harvest: ee.Image('users/boothmanrylan/NTEMSCanada/harvest_1985-2020')
 """
-import os
 
 import ee
 from msslib import msslib
 
 from . import constants
+
 
 def reduce_resolution(im):
     """ Explicitly reduce the resolution of a 1/0 image from 30m Landsat data.
@@ -336,7 +336,6 @@ def process_tm(image):
 
 
 def get_coincident_tm(image):
-    year = image.getNumber('year')
     aoi = image.geometry()
 
     # attempt to find coincident TM image
@@ -437,7 +436,6 @@ def label_image(image, fire_lookback=3, harvest_lookback=10):
         an ee.Image with one integer band containing the class of each pixel.
     """
     year = image.getNumber('year')
-    aoi = image.geometry()
 
     fire_lookback = year.subtract(fire_lookback)
     harvest_lookback = year.subtract(harvest_lookback)
@@ -557,7 +555,7 @@ def prepare_image_for_export(image):
         ee.List.repeat("float", image.bandNames().size())
     )
     image = image.cast(types)
-    image = image.select(BANDS)
+    image = image.select(constants.BANDS)
 
     default_proj = constants.get_default_projection()
     return image.reproject(default_proj), label.reproject(default_proj)

@@ -2,7 +2,6 @@
 
 Covering grids are used to make train/test/val splits.
 """
-import os
 
 import ee
 from msslib import msslib
