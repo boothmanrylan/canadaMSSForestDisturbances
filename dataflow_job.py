@@ -111,13 +111,13 @@ def get_image_label_metadata(image_id, feature_id, asset):
     request = build_request(cell, constants.EXPORT_PATCH_SIZE)
 
     image_request = {
-        'expression': image.unmask(0, sameFootprint=False,
+        'expression': image.unmask(0, sameFootprint=False),
         **request
     }
     np_image = np.load(io.BytesIO(ee.data.computePixels(image_request)))
 
-    image_request = {
-        'expression': label.unmask(0, sameFootprint=False)
+    label_request = {
+        'expression': label.unmask(0, sameFootprint=False),
         **request
     }
     np_label = np.load(io.BytesIO(ee.data.computePixels(label_request)))
