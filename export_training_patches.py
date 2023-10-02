@@ -20,47 +20,7 @@ import ee
 
 import geemap
 from msslib import msslib
-from mss_forest_disturbances import constants, preprocessing
-
-
-def ee_init():
-    credentials, project = google.auth.default(
-        scopes=[
-            "https://www.googleapis.com/auth/cloud-platform",
-            "https://www.googleapis.com/auth/earthengine",
-        ]
-    )
-    ee.Initialize(
-        credentials.with_quota_project(None),
-        project=project,
-        opt_url="https://earthengine-highvolume.googleapis.com",
-    )
-
-
-def build_request(cell, size):
-    # get top left corner of cell in *unscaled* projection
-    proj = ee.Projection(constants.PROJECTION)
-    coords = cell.geometry(1, proj).getInfo()["coordinates"][0][3]
-    request = {
-        "fileFormat": "NPY",
-        "grid": {
-            "dimensions": {
-                "width": size,
-                "height": size,
-            },
-            "affineTransform": {
-                "scaleX": constants.SCALE,
-                "shearX": 0,
-                "translateX": coords[0],
-                "shearY": 0,
-                "scaleY": -constants.SCALE,
-                "translateY": coords[1],
-            },
-            "crsCode": proj.getInfo()["crs"],
-        },
-    }
-
-    return request
+from mss_forest_disturbances import constants, preprocessing, dataflow_utils
 
 
 def _get_images_from_feature(feature):
@@ -81,7 +41,7 @@ def _get_images_from_feature(feature):
 
 
 def get_image_ids(row, asset):
-    ee_init()
+    dataflow_utils.ee_init()
 
     col = ee.FeatureCollection(asset)
     feature = col.filter(ee.Filter.eq("id", row["id"])).first()
@@ -97,17 +57,17 @@ def get_image_ids(row, asset):
 
 @retry.Retry()
 def get_image_label_metadata(image_id, feature_id, asset):
-    ee_init()
+    dataflow_utils.ee_init()
 
     image = msslib.process(ee.Image(image_id))
-    image, label = preprocessing.prepare_image_for_export(image)
+    image, label = preprocessing.prepare_image_and_label(image)
 
     col = ee.FeatureCollection(asset)
     cell = col.filter(ee.Filter.eq("id", feature_id)).first()
     metadata = preprocessing.prepare_metadata_for_export(image, cell)
     metadata = {key: val.getInfo() for key, val in metadata.items()}
 
-    request = build_request(cell, constants.EXPORT_PATCH_SIZE)
+    request = dataflow_utils.build_request(cell, constants.EXPORT_PATCH_SIZE)
 
     image_request = {"expression": image.unmask(0, sameFootprint=False), **request}
     np_image = np.load(io.BytesIO(ee.data.computePixels(image_request)))
@@ -136,7 +96,7 @@ def serialize_tensor(image, label, metadata):
 
 
 def run_pipeline(input_asset, output_prefix, max_requests, beam_args):
-    ee_init()
+    dataflow_utils.ee_init()
 
     col = ee.FeatureCollection(input_asset)
     df = geemap.ee_to_df(
@@ -167,7 +127,7 @@ def run_pipeline(input_asset, output_prefix, max_requests, beam_args):
         beam_args,
         save_main_session=True,
         max_num_workers=max_requests,
-        direct_num_works=max(max_requests, 20),
+        direct_num_workers=max(max_requests, 20),
         disk_size_gb=50,
     )
 
