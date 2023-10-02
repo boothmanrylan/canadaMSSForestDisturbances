@@ -12,5 +12,7 @@ setup(
         "tensorflow==2.12.0",
         "msslib",
         "geemap",
+        "matplotlib",
+        "numpy",
     ],
 )
