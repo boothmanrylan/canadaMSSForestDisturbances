@@ -541,18 +541,17 @@ def get_lookback_median(image, lookback=3, max_cloud_cover=20):
     return col.median().regexpRename("(.*)", "historical_$1", False)
 
 
-def prepare_image_for_export(image):
-    """Preprocess image, adds historical bands, and calculates image label.
-
+def prepare_image(image):
+    """"Preprocess image, add historical bands, reproject, and cast.
+    
     Args:
-        image: ee.Image originating from msslib.getCol
+        image: ee.Image origination from msslib.getCol
 
     Returns:
-        ee.Image, ee.Image: the prepared image and label respectively
+        ee.Image
     """
     image = preprocess(image)
     historical_bands = get_lookback_median(image)
-    label = label_image(image)
 
     image = image.addBands(historical_bands)
     types = ee.Dictionary.fromLists(
@@ -562,7 +561,23 @@ def prepare_image_for_export(image):
     image = image.select(constants.BANDS)
 
     default_proj = constants.get_default_projection()
-    return image.reproject(default_proj), label.reproject(default_proj)
+    return image.reproject(default_proj)
+
+
+def prepare_image_and_label(image):
+    """Preprocess image and calculates training label.
+
+    Args:
+        image: ee.Image originating from msslib.getCol
+
+    Returns:
+        ee.Image, ee.Image: the prepared image and label respectively
+    """
+    prepared_image = prepare_image(image)
+    label = label_image(prepared_image)
+
+    default_proj = constants.get_default_projection()
+    return image, label.reproject(default_proj)
 
 
 def prepare_metadata_for_export(image, cell):
