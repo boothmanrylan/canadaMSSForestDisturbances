@@ -541,8 +541,10 @@ def get_lookback_median(image, lookback=3, max_cloud_cover=20):
     return col.median().regexpRename("(.*)", "historical_$1", False)
 
 
-def prepare_image(image):
-    """ "Preprocess image, add historical bands, reproject, and cast.
+def _prepare_image(image):
+    """Preprocess image, add historical bands, reproject, and cast.
+
+    Does not remove the QA_BAND which is necessary for label_image().
 
     Args:
         image: ee.Image origination from msslib.getCol
@@ -558,10 +560,24 @@ def prepare_image(image):
         image.bandNames(), ee.List.repeat("float", image.bandNames().size())
     )
     image = image.cast(types)
-    image = image.select(constants.BANDS)
 
     default_proj = constants.get_default_projection()
     return image.reproject(default_proj)
+
+
+def prepare_image(image):
+    """Preprocess image, add historical bands, reproject, and cast.
+
+    Only returns the bands specified by constants.BANDS
+
+    Args:
+        image: ee.Image origination from msslib.getCol
+
+    Returns:
+        ee.Image
+    """
+    image = _prepare_image(image)
+    return image.select(constants.BANDS)
 
 
 def prepare_image_and_label(image):
@@ -573,11 +589,13 @@ def prepare_image_and_label(image):
     Returns:
         ee.Image, ee.Image: the prepared image and label respectively
     """
-    prepared_image = prepare_image(image)
+    prepared_image = _prepare_image(image)
     label = label_image(prepared_image)
 
+    prepared_image = prepared_image.select(constants.BANDS)
+
     default_proj = constants.get_default_projection()
-    return image, label.reproject(default_proj)
+    return prepared_image, label.reproject(default_proj)
 
 
 def prepare_metadata_for_export(image, cell):
