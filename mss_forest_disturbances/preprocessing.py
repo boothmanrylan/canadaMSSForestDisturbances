@@ -541,6 +541,22 @@ def get_lookback_median(image, lookback=3, max_cloud_cover=20):
     return col.median().regexpRename("(.*)", "historical_$1", False)
 
 
+def cast_to_float(image):
+    """Helper function to cast all bands in an image to float.
+
+    Args:
+        image: ee.Image
+
+    Returns:
+        ee.Image, the input image after casting all bands to float.
+    """
+    types = ee.Dictionary.fromLists(
+        image.bandNames(), ee.List.repeat("float", image.bandNames().size())
+    )
+    image = image.cast(types)
+    return image
+
+
 def _prepare_image(image):
     """Preprocess image, add historical bands, reproject, and cast.
 
@@ -556,10 +572,6 @@ def _prepare_image(image):
     historical_bands = get_lookback_median(image)
 
     image = image.addBands(historical_bands)
-    types = ee.Dictionary.fromLists(
-        image.bandNames(), ee.List.repeat("float", image.bandNames().size())
-    )
-    image = image.cast(types)
 
     default_proj = constants.get_default_projection()
     return image.reproject(default_proj)
@@ -577,6 +589,7 @@ def prepare_image(image):
         ee.Image
     """
     image = _prepare_image(image)
+    image = cast_to_float(image)
     return image.select(constants.BANDS)
 
 
@@ -592,7 +605,7 @@ def prepare_image_and_label(image):
     prepared_image = _prepare_image(image)
     label = label_image(prepared_image)
 
-    prepared_image = prepared_image.select(constants.BANDS)
+    prepared_image = cast_to_float(prepared_image.select(constants.BANDS))
 
     default_proj = constants.get_default_projection()
     return prepared_image, label.reproject(default_proj)
