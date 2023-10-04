@@ -7,7 +7,6 @@ import itertools
 import logging
 import os
 
-import google
 from google.api_core import retry
 
 import apache_beam as beam

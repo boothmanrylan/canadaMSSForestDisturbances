@@ -3,11 +3,8 @@
 
 import argparse
 import io
-import itertools
-import logging
 import os
 
-import google
 from google.api_core import retry
 
 import apache_beam as beam
@@ -25,7 +22,6 @@ import ee
 import rasterio
 from rasterio.transform import Affine
 
-import geemap
 from msslib import msslib
 from mss_forest_disturbances import (
     constants,
@@ -39,6 +35,7 @@ from mss_forest_disturbances import (
 class ProcessCell(beam.DoFn):
     """DoFn to preprocess data for a grid cell before being passed to a model."""
 
+    @retry.Retry()  # TODO: this might fail b/c we are decorating a class method
     def process(self, element, asset, start_year, end_year, batch_size):
         """Returns the result of calling computePixels as a TensorFlow dataset.
 
@@ -227,7 +224,7 @@ class ComputeAnnualMaps(beam.DoFn):
 
         processed_array = bulc.bulcp(array)
 
-        col = ee.FeatureCollection(asset)
+        col = ee.FeatureCollection(input_asset)
         feature = col.filter(ee.Filter.eq("id", key)).first()
 
         geometry = feature.geometry(
@@ -293,6 +290,8 @@ class TFNoBatchModelHandler(TFModelHandlerTensor):
 def run_pipeline(
     input_asset,
     output_prefix,
+    model_checkpoint_path,
+    max_requests=20,
     model_one_output_prefix=None,
     start_year=constants.FIRST_MSS_YEAR,
     end_year=constants.FIRST_DISTURBANCE_YEAR - 1,
@@ -312,9 +311,9 @@ def run_pipeline(
         disk_size_gb=50,
     )
 
-    model_one_handler = KeyedModelHandler(
+    model_handler = KeyedModelHandler(
         TFNoBatchModelHandler(
-            checkpoint_path,
+            model_checkpoint_path,
             model_type=ModelType.SAVE_WEIGHTS,
             create_model_fn=model.build_model,
         )
@@ -335,7 +334,7 @@ def run_pipeline(
                 WriteToDisk(model_one_output_prefix), input_asset
             )
 
-        model_two_outputs = (
+        (
             model_one_outputs
             | "Run Model 2"
             >> beam.ParDo(ComputeAnnualMaps(), start_year, end_year, input_asset)
@@ -357,6 +356,12 @@ if __name__ == "__main__":
         required=True,
         type=str,
         help="Path to a Google Cloud bucket folder to write results to.",
+    )
+    parser.add_argument(
+        "--model-checkpoint-path",
+        required=True,
+        type=str,
+        help="Path to a Google Cloud bucket location storing model weights.",
     )
     parser.add_argument(
         "--model-one-output-prefix",
@@ -381,15 +386,23 @@ if __name__ == "__main__":
         default=32,
         help="Number of image patches to process simultaneously.",
     )
+    parser.add_argument(
+        "--max-requests",
+        type=int,
+        default=20,
+        help="Max number of concurrent requests",
+    )
 
     args, beam_args = parser.parse_known_args()
 
     run_pipeline(
         input_asset=args.input_asset,
         output_prefix=args.output_prefix,
+        model_checkpoint_path=args.model_checkpoint_path,
         model_one_output_prefix=args.model_one_output_prefix,
         start_year=args.start_year,
         end_year=args.end_year,
         batch_size=args.batch_size,
+        max_requests=args.max_requests,
         beam_args=beam_args,
     )
