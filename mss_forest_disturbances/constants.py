@@ -117,9 +117,8 @@ assert EXPORT_PATCH_SIZE % PATCH_SIZE == 0, msg
 HIGH_VOLUME_ENDPOINT = "https://earthengine-highvolume.googleapis.com"
 MAX_REQUESTS = 20
 
-BASE_DOCKER_IMAGE_URI = (
-    f"{LOCATION}-docker.pkg.dev/{PROJECT}/dataflow-containers/dataflow/"
-)
+DOCKER_IMAGE_DIR = f"{LOCATION}-docker.pkg.dev/{PROJECT}/dataflow-containers/"
+DOCKER_IMAGE_URI = DOCKER_IMAGE_DIR + "mssForestDisturbances.dockerfile"
 
 
 def get_default_projection():
