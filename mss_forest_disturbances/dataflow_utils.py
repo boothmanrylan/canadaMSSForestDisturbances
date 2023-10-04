@@ -64,5 +64,3 @@ def build_request(cell, size, file_format="NPY"):
     }
 
     return request
-
-

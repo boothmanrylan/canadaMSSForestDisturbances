@@ -542,8 +542,8 @@ def get_lookback_median(image, lookback=3, max_cloud_cover=20):
 
 
 def prepare_image(image):
-    """"Preprocess image, add historical bands, reproject, and cast.
-    
+    """ "Preprocess image, add historical bands, reproject, and cast.
+
     Args:
         image: ee.Image origination from msslib.getCol
 
