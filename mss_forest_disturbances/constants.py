@@ -118,7 +118,7 @@ HIGH_VOLUME_ENDPOINT = "https://earthengine-highvolume.googleapis.com"
 MAX_REQUESTS = 20
 
 DOCKER_IMAGE_DIR = f"{LOCATION}-docker.pkg.dev/{PROJECT}/dataflow-containers/"
-DOCKER_IMAGE_URI = DOCKER_IMAGE_DIR + "mssForestDisturbances.dockerfile"
+DOCKER_IMAGE_URI = DOCKER_IMAGE_DIR + "mss_forest_disturbances.dockerfile"
 
 
 def get_default_projection():
