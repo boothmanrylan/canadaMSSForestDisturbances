@@ -18,7 +18,7 @@ class TemporalFusion(tf.keras.layers.Layer):
         super().__init__(**kwargs)
         self.conv = tf.keras.layers.Conv2D(
             filters=filters,
-            kernal_size=(1, 1),
+            kernel_size=(1, 1),
             padding="same",
             activation="relu",
         )
