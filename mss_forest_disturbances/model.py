@@ -130,7 +130,7 @@ class MetadataBias(tf.keras.layers.Layer):
 
         self.num_int_inputs = num_int_inputs
         self.num_inputs = num_float_inputs + num_int_inputs
-        self.num_outputs = self.num_outputs
+        self.num_outputs = num_outputs
 
         integer_embeddors = [
             tf.keras.layers.Embedding(x, self.num_outputs // self.num_inputs)
