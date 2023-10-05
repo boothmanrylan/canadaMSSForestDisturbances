@@ -209,6 +209,7 @@ def random_crop_wrapper(x, y, size, include_metadata=False):
     """
     seed = RNG.make_seeds(2)[0]
     x, y = random_crop(x, y, size, seed, include_metadata=include_metadata)
+    return x, y
 
 
 def apply_data_augmentation(x, y, include_metadata=False):
