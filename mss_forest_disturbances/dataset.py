@@ -234,6 +234,7 @@ def apply_data_augmentation(x, y, include_metadata=False):
 def build_dataset(
     tfrecord_pattern,
     parse_options,
+    size=constants.PATCH_SIZE,
     training=True,
     data_augmentation=True,
     cycle_length=30,
@@ -247,6 +248,7 @@ def build_dataset(
     Args:
         tfrecord_pattern: str, unix style file pattern
         parse_options: dict, passed to parse, see parse for explanation
+        size: int, the height/width of output patches
         training: bool, if True apply training only transforms to the dataset,
             e.g., shuffle, data augmentation, and repeat
         data_augmentation: bool, if True and training is also True, apply data
@@ -263,7 +265,6 @@ def build_dataset(
         tf.data.Dataset
     """
     include_metadata = parse_options["integer_metadata"] is not None
-    size = parse_options["size"]
 
     def interleave_fn(filename):
         raw_dataset = tf.data.TFRecordDataset(filename, compression_type="GZIP")
