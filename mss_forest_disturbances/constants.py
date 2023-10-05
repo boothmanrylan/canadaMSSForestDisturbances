@@ -3,6 +3,8 @@
 import os
 import ee
 
+import tensorflow as tf
+
 LANDCOVER = "projects/sat-io/open-datasets/CA_FOREST_LC_VLCE2"
 FIRE = "users/boothmanrylan/NTEMSCanada/forest_fire_1985-2020"
 HARVEST = "users/boothmanrylan/NTEMSCanada/harvest_1985-2020"
@@ -153,9 +155,9 @@ Based on:
 https://discuss.pytorch.org/t/own-loss-function-for-multi-class-classifikation/115448/2
 """
 _label_smoothing_matrix = []
-for i in range(NUM_OUTPUTS):
+for i in range(NUM_CLASSES):
     if i in [0, 2, 3, 8, 9]:
-        _label_smoothing_matrix.append(tf.one_hot(i, NUM_OUTPUTS))
+        _label_smoothing_matrix.append(tf.one_hot(i, NUM_CLASSES))
     elif i == 1:
         _label_smoothing_matrix.append(
             tf.constant([0.00, 0.80, 0.00, 0.00, 0.05, 0.05, 0.05, 0.05, 0.00, 0.00])
