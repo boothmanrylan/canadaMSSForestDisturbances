@@ -288,6 +288,7 @@ def build_dataset(
         )
 
         subset = []
+        print("Building a normalization subset. This may take some time...")
         for x, y in parsed_dataset.take(normalization_subset_size):
             if include_metadata:
                 subset.append(x[0])
