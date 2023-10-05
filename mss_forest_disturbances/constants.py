@@ -120,6 +120,64 @@ MAX_REQUESTS = 20
 DOCKER_IMAGE_DIR = f"{LOCATION}-docker.pkg.dev/{PROJECT}/dataflow-containers/"
 DOCKER_IMAGE_URI = DOCKER_IMAGE_DIR + "mss_forest_disturbances.dockerfile"
 
+MAX_DOY = 110
+NUM_ECOZONES = 10
+
+DEFAULT_PARSE_OPTIONS = {
+    "size": EXPORT_PATCH_SIZE,
+    "bands": BANDS,
+    "label": "label",
+    "num_classes": NUM_CLASSES,
+    "integer_metadata": ["doy", "ecozone"],
+    "float_metadata": ["lat", "lon"],
+}
+
+DEFAULT_MODEL_OPTIONS = {
+    "input_shape": (PATCH_SIZE, PATCH_SIZE, len(BANDS)),
+    "filters": [32, 64, 128, 256],
+    "kernels": [5, 3, 3, 3],
+    "dilation_rates": [1, 2, 4, 4],
+    "first_downstack_inputs": len(_BANDS) + 1,
+    "integer_metadata": ["doy", "ecozone"],
+    "max_integer_metadata_values": [MAX_DOY, NUM_ECOZONES],
+    "float_metadata": ["lat", "lon"],
+}
+
+"""
+Penalize errors between current and previous disturbances (of the same type)
+less than other errors.
+Penalize errors between non forest and distrubances (of any type
+current/previous) less than other errors.
+
+Based on:
+https://discuss.pytorch.org/t/own-loss-function-for-multi-class-classifikation/115448/2
+"""
+_label_smoothing_matrix = []
+for i in range(NUM_OUTPUTS):
+    if i in [0, 2, 3, 8, 9]:
+        _label_smoothing_matrix.append(tf.one_hot(i, NUM_OUTPUTS))
+    elif i == 1:
+        _label_smoothing_matrix.append(
+            tf.constant([0.00, 0.80, 0.00, 0.00, 0.05, 0.05, 0.05, 0.05, 0.00, 0.00])
+        )
+    elif i == 4:
+        _label_smoothing_matrix.append(
+            tf.constant([0.00, 0.05, 0.00, 0.00, 0.85, 0.10, 0.00, 0.00, 0.00, 0.00])
+        )
+    elif i == 5:
+        _label_smoothing_matrix.append(
+            tf.constant([0.00, 0.05, 0.00, 0.00, 0.10, 0.85, 0.00, 0.00, 0.00, 0.00])
+        )
+    elif i == 6:
+        _label_smoothing_matrix.append(
+            tf.constant([0.00, 0.05, 0.00, 0.00, 0.00, 0.00, 0.85, 0.10, 0.00, 0.00])
+        )
+    elif i == 7:
+        _label_smoothing_matrix.append(
+            tf.constant([0.00, 0.05, 0.00, 0.00, 0.00, 0.00, 0.10, 0.85, 0.00, 0.00])
+        )
+LABEL_SMOOTHING_MATRIX = tf.stack(_label_smoothing_matrix)
+
 
 def get_default_projection():
     return ee.Projection(PROJECTION).atScale(SCALE)
