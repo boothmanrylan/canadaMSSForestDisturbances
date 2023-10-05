@@ -90,7 +90,10 @@ def non_overlapping_crop(x, y, size, include_metadata=False):
     Returns:
         tf.data.Dataset containing each of the patches from x and y
     """
-    initial_size = x.shape[0]
+    if include_metadata:
+        initial_size = x[0].shape[0]
+    else:
+        initial_size = x.shape[0]
 
     def crop(tensor):
         """based on https://stackoverflow.com/a/31530106"""
