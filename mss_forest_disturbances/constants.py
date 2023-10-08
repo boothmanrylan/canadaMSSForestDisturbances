@@ -120,7 +120,7 @@ HIGH_VOLUME_ENDPOINT = "https://earthengine-highvolume.googleapis.com"
 MAX_REQUESTS = 20
 
 DOCKER_IMAGE_DIR = f"{LOCATION}-docker.pkg.dev/{PROJECT}/dataflow-containers/"
-DOCKER_IMAGE_URI = DOCKER_IMAGE_DIR + "mss_forest_disturbances.dockerfile"
+DOCKER_IMAGE_URI = DOCKER_IMAGE_DIR + "mss_forest_disturbances.dockerfile:1.0"
 
 MAX_DOY = 110
 NUM_ECOZONES = 10
