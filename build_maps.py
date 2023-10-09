@@ -35,6 +35,9 @@ from mss_forest_disturbances import (
 class ProcessCell(beam.DoFn):
     """DoFn to preprocess data for a grid cell before being passed to a model."""
 
+    def setup(self):
+        dataflow_utils.ee_init()
+
     @retry.Retry()  # TODO: this might fail b/c we are decorating a class method
     def process(self, element, asset, start_year, end_year, batch_size):
         """Returns the result of calling computePixels as a TensorFlow dataset.
@@ -49,8 +52,6 @@ class ProcessCell(beam.DoFn):
         Returns:
             int, tf.data.Dataset, the key and the dataset
         """
-        dataflow_utils.ee_init()
-
         key, index = element
 
         col = ee.FeatureCollection(asset)
@@ -154,6 +155,9 @@ class WriteToDisk(beam.DoFn):
         super().__init__(**kwargs)
         self.output_prefix = output_prefix
 
+    def setup(self):
+        dataflow_utils.ee_init()
+
     def process(self, element, asset):
         """Writes each member of element to disk as a separate GeoTiff file.
 
@@ -164,8 +168,6 @@ class WriteToDisk(beam.DoFn):
         Returns:
             None
         """
-        dataflow_utils.ee_init()
-
         key, stacked_prediction_result = element
 
         col = ee.FeatureCollection(asset)
@@ -204,6 +206,9 @@ class WriteToDisk(beam.DoFn):
 class ComputeAnnualMaps(beam.DoFn):
     """Convert a stack of classified images into annual maps."""
 
+    def setup(self):
+        dataflow_utils.ee_init()
+
     def process(element, start_year, end_year, input_asset):
         """Reduces a stack of classified images to a stack of annual maps.
 
@@ -218,8 +223,6 @@ class ComputeAnnualMaps(beam.DoFn):
         Returns:
             ndarray (image, height, width, 2), annual harvest/fire maps
         """
-        dataflow_utils.ee_init()
-
         key, array = element
 
         processed_array = bulc.bulcp(array)
@@ -288,6 +291,7 @@ class TFNoBatchModelHandler(TFModelHandlerTensor):
 
 
 def run_pipeline(
+    beam_args,
     input_asset,
     output_prefix,
     model_checkpoint_path,
@@ -296,7 +300,6 @@ def run_pipeline(
     start_year=constants.FIRST_MSS_YEAR,
     end_year=constants.FIRST_DISTURBANCE_YEAR - 1,
     batch_size=constants.BATCH_SIZE,
-    *beam_args,
 ):
     dataflow_utils.ee_init()
 
@@ -304,7 +307,7 @@ def run_pipeline(
     num_rows = col.size().getInfo()
 
     beam_options = PipelineOptions(
-        *beam_args,
+        beam_args,
         save_main_session=True,
         max_num_workers=max_requests,
         direct_num_workers=max(max_requests, 20),
@@ -396,6 +399,7 @@ if __name__ == "__main__":
     args, beam_args = parser.parse_known_args()
 
     run_pipeline(
+        beam_args,
         input_asset=args.input_asset,
         output_prefix=args.output_prefix,
         model_checkpoint_path=args.model_checkpoint_path,
@@ -404,5 +408,4 @@ if __name__ == "__main__":
         end_year=args.end_year,
         batch_size=args.batch_size,
         max_requests=args.max_requests,
-        beam_args=beam_args,
     )
