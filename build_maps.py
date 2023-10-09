@@ -75,7 +75,16 @@ class ProcessCell(beam.DoFn):
         request = dataflow_utils.build_request(feature, constants.PATCH_SIZE)
 
         num_images = images.size().getInfo()
-        max_images_per_request = math.floor(1024 / len(constants.BANDS))
+        max_images_per_request_by_bands = math.floor(
+            constants.COMPUTE_PIXELS_MAX_BANDS / len(constants.BANDS)
+        )
+        max_images_per_request_by_bytes = math.floor(
+            constants.COMPUTE_PIXELS_MAX_BYTES
+            / ((constants.PATCH_SIZE**2) * len(constants.BANDS) * (32 / 8))
+        )
+        max_images_per_request = min(
+            max_images_per_request_by_bands, max_images_per_request_by_bytes
+        )
         num_requests = math.ceil(num_images / max_images_per_request)
 
         image_list = images.toList(images.size())
