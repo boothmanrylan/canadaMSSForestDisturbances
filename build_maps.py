@@ -304,12 +304,13 @@ def run_pipeline(
     dataflow_utils.ee_init()
 
     col = ee.FeatureCollection(input_asset)
+    cells = col.aggregate_array("cell_id").getInfo()
 
     ###################################################
     # TODO remove this before running full job
     # work on a small subset of the complete collection during testing
     # num_rows = col.size().getInfo()
-    num_rows = 20
+    cells = cells[:20]
     ###################################################
 
     beam_options = PipelineOptions(
@@ -331,7 +332,7 @@ def run_pipeline(
     with beam.Pipeline(options=beam_options) as pipeline:
         model_one_outputs = (
             pipeline
-            | "Create" >> beam.Create(zip(range(num_rows), range(num_rows)))
+            | "Create" >> beam.Create(zip(cells, cells))
             | "Generate tf.data.Dataset"
             >> beam.ParDo(ProcessCell(), input_asset, start_year, end_year, batch_size)
             | "Run Model 1" >> beam.ParDo(RunInferencePerElement(model_handler))
