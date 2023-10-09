@@ -145,6 +145,8 @@ DEFAULT_MODEL_OPTIONS = {
     "float_metadata": ["lat", "lon"],
 }
 
+BATCH_SIZE = 32
+
 """
 Penalize errors between current and previous disturbances (of the same type)
 less than other errors.
