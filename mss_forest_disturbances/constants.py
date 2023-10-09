@@ -185,3 +185,7 @@ LABEL_SMOOTHING_MATRIX = tf.stack(_label_smoothing_matrix)
 
 def get_default_projection():
     return ee.Projection(PROJECTION).atScale(SCALE)
+
+
+COMPUTE_PIXELS_MAX_BANDS = 1024
+COMPUTE_PIXELS_MAX_BYTES = 50331648
