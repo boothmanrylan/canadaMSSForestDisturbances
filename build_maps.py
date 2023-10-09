@@ -55,7 +55,7 @@ class ProcessCell(beam.DoFn):
         key, index = element
 
         col = ee.FeatureCollection(asset)
-        feature = col.filter(ee.Filter.eq("id", index)).first()
+        feature = col.filter(ee.Filter.eq("cell_id", index)).first()
 
         geometry = feature.geometry(
             ee.ErrorMargin(1, "projected"), constants.get_default_projection()
@@ -171,7 +171,7 @@ class WriteToDisk(beam.DoFn):
         key, stacked_prediction_result = element
 
         col = ee.FeatureCollection(asset)
-        feature = col.filter(ee.Filter.eq("id", key))
+        feature = col.filter(ee.Filter.eq("cell_id", key))
 
         proj = ee.Projection(constants.PROJECTION)
         coords = feature.geometry(1, proj).getInfo()["coordinates"][0][3]
@@ -228,7 +228,7 @@ class ComputeAnnualMaps(beam.DoFn):
         processed_array = bulc.bulcp(array)
 
         col = ee.FeatureCollection(input_asset)
-        feature = col.filter(ee.Filter.eq("id", key)).first()
+        feature = col.filter(ee.Filter.eq("cell_id", key)).first()
 
         geometry = feature.geometry(
             ee.ErrorMargin(1, "projected"), constants.get_default_projection()
