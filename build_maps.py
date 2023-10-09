@@ -317,7 +317,7 @@ def run_pipeline(
     model_handler = KeyedModelHandler(
         TFNoBatchModelHandler(
             model_checkpoint_path,
-            model_type=ModelType.SAVE_WEIGHTS,
+            model_type=ModelType.SAVED_WEIGHTS,
             create_model_fn=model.build_model,
         )
     )
