@@ -10,7 +10,7 @@ from google.api_core import retry
 
 import apache_beam as beam
 from apache_beam.options.pipeline_options import PipelineOptions
-from apache_beam.ml.inference.base import RunInference, KeyedModelHandler
+from apache_beam.ml.inference.base import RunInference
 from apache_beam.ml.inference.tensorflow_inference import TFModelHandlerTensor
 from apache_beam.ml.inference.tensorflow_inference import ModelType
 
@@ -80,7 +80,7 @@ class ProcessCell(beam.DoFn):
         )
         max_images_per_request_by_bytes = math.floor(
             constants.COMPUTE_PIXELS_MAX_BYTES
-            / ((constants.PATCH_SIZE**2) * len(constants.BANDS) * (32 / 8))
+            / ((constants.PATCH_SIZE**2) * len(constants.BANDS) * (32 / 4))
         )
         max_images_per_request = min(
             max_images_per_request_by_bands, max_images_per_request_by_bytes
@@ -97,7 +97,10 @@ class ProcessCell(beam.DoFn):
             request_image = ee.ImageCollection(request_images).toBands()
             request["expression"] = request_image
 
-            curr_result = np.load(io.BytesIO(ee.data.computePixels(request)))
+            curr_result = np.load(
+                io.BytesIO(ee.data.computePixels(request)),
+                allow_pickle=True,  # allows reading larger files
+            )
 
             curr_result = structured_to_unstructured(curr_result, dtype=np.float32)
 
@@ -108,7 +111,7 @@ class ProcessCell(beam.DoFn):
             curr_result = np.stack(curr_result, 0)
             all_results.append(curr_result)
 
-        result = np.stack(all_results)
+        result = np.concatenate(all_results, 0)
 
         result = tf.data.Dataset.from_tensor_slices(result).batch(batch_size)
 
@@ -123,12 +126,12 @@ class RunInferencePerElement(beam.DoFn):
     separate
     """
 
-    def __init__(self, keyed_model_handler):
+    def __init__(self, model_handler):
         """
         keyed_model_handler: KeyedModelHandler, passed to RunInference in
             process
         """
-        self.keyed_model_handler = keyed_model_handler
+        self.model_handler = model_handler
 
     def process(self, element):
         """Returns element | RunInference
@@ -139,7 +142,8 @@ class RunInferencePerElement(beam.DoFn):
         Returns:
             keyed pcollection containing model inputs and outputs
         """
-        return element | RunInference(model_handler=self.keyed_model_handler)
+        key, value = element
+        return key, value | RunInference(model_handler=self.model_handler)
 
 
 class StackPredictionResults(beam.DoFn):
@@ -349,12 +353,10 @@ def run_pipeline(
         disk_size_gb=50,
     )
 
-    model_handler = KeyedModelHandler(
-        TFNoBatchModelHandler(
-            model_checkpoint_path,
-            model_type=ModelType.SAVED_WEIGHTS,
-            create_model_fn=model.build_model,
-        )
+    model_handler = TFNoBatchModelHandler(
+        model_checkpoint_path,
+        model_type=ModelType.SAVED_WEIGHTS,
+        create_model_fn=model.build_model,
     )
 
     with beam.Pipeline(options=beam_options) as pipeline:
