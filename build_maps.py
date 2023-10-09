@@ -2,8 +2,8 @@
 """
 
 import argparse
-import io
 import os
+import math
 
 from google.api_core import retry
 
@@ -72,15 +72,33 @@ class ProcessCell(beam.DoFn):
         )
 
         request = dataflow_utils.build_request(feature, constants.PATCH_SIZE)
-        request["expression"] = images.toBands()  # must be a single image
 
-        result = np.load(io.BytesIO(ee.data.computePixels(request)))
+        num_images = images.size().getInfo()
+        max_images_per_request = math.floor(1024 / len(constants.BANDS))
+        num_requests = math.ceil(num_images / max_images_per_request)
 
-        result = structured_to_unstructured(result, dtype=np.float32)
+        image_list = images.toList(images.size())
 
-        # undo the call to toBands() to get individual images back
-        result = np.split(result, result.shape[-1] // len(constants.BANDS), -1)
-        result = np.stack(result, 0)
+        all_results = []
+        for i in range(num_requests):
+            start = i * max_images_per_request
+            stop = min((i + 1) * max_images_per_request, num_images)
+            request_images = image_list.slice(start, stop)
+            request_image = ee.ImageCollection(request_images).toBands()
+            request["expression"] = request_image
+
+            curr_result = np.load(np.BytesIO(ee.data.computePixels(request)))
+
+            curr_result = structured_to_unstructured(curr_result, dtype=np.float32)
+
+            # undo the call to toBands() to get individual images back
+            curr_result = np.split(
+                curr_result, curr_result.shape[-1] // len(constants.BANDS), -1
+            )
+            curr_result = np.stack(curr_result, 0)
+            all_results.append(curr_result)
+
+        result = np.stack(all_results)
 
         result = tf.data.Dataset.from_tensor_slices(result).batch(batch_size)
 
