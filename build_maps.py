@@ -304,7 +304,13 @@ def run_pipeline(
     dataflow_utils.ee_init()
 
     col = ee.FeatureCollection(input_asset)
-    num_rows = col.size().getInfo()
+
+    ###################################################
+    # TODO remove this before running full job
+    # work on a small subset of the complete collection during testing
+    # num_rows = col.size().getInfo()
+    num_rows = 20
+    ###################################################
 
     beam_options = PipelineOptions(
         beam_args,
