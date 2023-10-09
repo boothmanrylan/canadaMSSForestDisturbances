@@ -2,6 +2,7 @@
 """
 
 import argparse
+import io
 import os
 import math
 
@@ -87,7 +88,7 @@ class ProcessCell(beam.DoFn):
             request_image = ee.ImageCollection(request_images).toBands()
             request["expression"] = request_image
 
-            curr_result = np.load(np.BytesIO(ee.data.computePixels(request)))
+            curr_result = np.load(io.BytesIO(ee.data.computePixels(request)))
 
             curr_result = structured_to_unstructured(curr_result, dtype=np.float32)
 
